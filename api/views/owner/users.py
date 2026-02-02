@@ -1,0 +1,350 @@
+from django.db import transaction
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from django.shortcuts import get_object_or_404
+from django.db.models import Count, Q
+from django.core.paginator import Paginator
+from ...models import User, UserTenant, Tenant
+from ...serializers import CreateUserSerializer, UserUpdateSerializer
+from ...permissions import IsOwner
+from ...utils.password import generate_temp_password
+
+
+class CreateUserView(APIView):
+    permission_classes = [IsAuthenticated, IsOwner]
+
+    @transaction.atomic
+    def post(self, request):
+        serializer = CreateUserSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        data = serializer.validated_data
+        tenant_id = data["tenantId"]
+
+        # Ensure owner belongs to tenant
+        if not UserTenant.objects.filter(
+            user=request.user,
+            tenant_id=tenant_id,
+            role="OWNER"
+        ).exists():
+            return Response(
+                {"error": "You do not own this pharmacy"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        temp_password = generate_temp_password()
+
+        user, created = User.objects.get_or_create(
+            email=data["email"],
+            defaults={
+                "name": data["name"],
+                "must_change_password": True
+            }
+        )
+
+        if created:
+            user.set_password(temp_password)
+            user.save()
+        else:
+            return Response(
+                {"error": "User with this email already exists"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        UserTenant.objects.create(
+            user=user,
+            tenant_id=tenant_id,
+            role=data["role"]
+        )
+
+        return Response({
+            "message": "User created successfully",
+            "data": {
+                "id": str(user.id),
+                "name": user.name,
+                "email": user.email,
+                "role": data["role"],
+                "tenantId": str(tenant_id)
+            },
+            "temporaryPassword": temp_password
+        }, status=status.HTTP_201_CREATED)
+
+
+class OwnerUserListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        tenant_id = request.query_params.get("tenantId")
+
+        if not tenant_id:
+            return Response(
+                {"detail": "tenantId is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # validate tenant belongs to owner
+        try:
+            user_tenant = UserTenant.objects.get(
+                user=request.user,
+                tenant_id=tenant_id,
+                role="OWNER"
+            )
+        except UserTenant.DoesNotExist:
+            return Response(
+                {"detail": "Unauthorized tenant access"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Get all users for this tenant
+        user_tenants = UserTenant.objects.filter(
+            tenant_id=tenant_id
+        ).select_related("user")
+
+        users_data = []
+        for ut in user_tenants:
+            users_data.append({
+                "id": str(ut.user.id),
+                "name": ut.user.name,
+                "email": ut.user.email,
+                "role": ut.role,
+                "created_at": ut.user.created_at
+            })
+
+        return Response(users_data, status=status.HTTP_200_OK)
+
+
+class OwnerUpdateUserView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, user_id):
+        tenant_id = request.query_params.get("tenantId")
+
+        if not tenant_id:
+            return Response(
+                {"detail": "tenantId is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            user_tenant = UserTenant.objects.get(
+                user_id=user_id,
+                tenant_id=tenant_id
+            )
+            user = user_tenant.user
+        except UserTenant.DoesNotExist:
+            return Response(
+                {"detail": "User not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        if user_tenant.role == "OWNER":
+            return Response(
+                {"detail": "Cannot modify OWNER"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        serializer = UserUpdateSerializer(
+            user,
+            data=request.data,
+            partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(
+            {"message": "User updated successfully"},
+            status=status.HTTP_200_OK
+        )
+
+
+class OwnerUserStatusView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, user_id):
+        tenant_id = request.query_params.get("tenantId")
+        is_active = request.data.get("is_active")
+
+        if is_active is None:
+            return Response(
+                {"detail": "is_active is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            user_tenant = UserTenant.objects.get(
+                user_id=user_id,
+                tenant_id=tenant_id
+            )
+            user = user_tenant.user
+        except UserTenant.DoesNotExist:
+            return Response(
+                {"detail": "User not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        if user_tenant.role == "OWNER":
+            return Response(
+                {"detail": "Cannot deactivate OWNER"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        user.is_active = is_active
+        user.save()
+
+        return Response(
+            {"message": "User status updated"},
+            status=status.HTTP_200_OK
+        )
+
+
+class OwnerResetUserPasswordView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, user_id):
+        tenant_id = request.query_params.get("tenantId")
+        password = request.data.get("password")
+        confirm = request.data.get("confirmPassword")
+
+        if password != confirm:
+            return Response(
+                {"detail": "Passwords do not match"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            user_tenant = UserTenant.objects.get(
+                user_id=user_id,
+                tenant_id=tenant_id
+            )
+            user = user_tenant.user
+        except UserTenant.DoesNotExist:
+            return Response(
+                {"detail": "User not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        user.set_password(password)
+        user.must_change_password = True
+        user.save()
+
+        return Response(
+            {"message": "Password reset successfully"},
+            status=status.HTTP_200_OK
+        )
+
+
+class UsersSummaryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, tenant_id):
+        tenant = get_object_or_404(Tenant, id=tenant_id)
+
+        # Ensure user belongs to tenant
+        if not UserTenant.objects.filter(
+            user=request.user,
+            tenant=tenant
+        ).exists():
+            return Response(
+                {"detail": "Not authorized for this tenant"},
+                status=403
+            )
+
+        qs = UserTenant.objects.filter(tenant=tenant)
+
+        total_users = qs.count()
+        active_users = qs.filter(user__is_active=True).count()
+        inactive_users = qs.filter(user__is_active=False).count()
+
+        roles = (
+            qs.values("role")
+            .annotate(count=Count("id"))
+        )
+
+        by_role = {r["role"]: r["count"] for r in roles}
+
+        return Response({
+            "totalUsers": total_users,
+            "activeUsers": active_users,
+            "inactiveUsers": inactive_users,
+            "byRole": by_role
+        })
+
+
+class SearchUsersView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, tenant_id):
+        tenant = Tenant.objects.filter(id=tenant_id, is_active=True).first()
+        if not tenant:
+            return Response({"detail": "Tenant not found"}, status=404)
+
+        # Check user belongs to tenant
+        if not UserTenant.objects.filter(
+            user=request.user,
+            tenant=tenant
+        ).exists():
+            return Response({"detail": "Forbidden"}, status=403)
+
+        query = request.GET.get("query", "").strip()
+        role = request.GET.get("role")
+        page = int(request.GET.get("page", 1))
+        page_size = int(request.GET.get("page_size", 10))
+
+        users = User.objects.filter(
+            user_tenants__tenant=tenant
+        ).distinct()
+
+        # Text search
+        if query:
+            users = users.filter(
+                Q(name__icontains=query) |
+                Q(email__icontains=query) |
+                Q(user_code__icontains=query)
+            )
+
+        # Role filter
+        if role:
+            users = users.filter(
+                user_tenants__role=role
+            )
+
+        paginator = Paginator(users.order_by("-created_at"), page_size)
+        page_obj = paginator.get_page(page)
+
+        data = []
+        for user in page_obj:
+            membership = user.user_tenants.filter(
+                tenant=tenant
+            ).first()
+
+            data.append({
+                "id": str(user.id),
+                "user_code": user.user_code,
+                "name": user.name,
+                "email": user.email,
+                "role": membership.role if membership else None,
+                "is_active": user.is_active,
+                "created_at": user.created_at,
+            })
+
+        return Response({
+            "results": data,
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total_pages": paginator.num_pages,
+                "total_items": paginator.count
+            }
+        })
+
+
+class RolesListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        roles = ["OWNER", "ADMIN", "STAFF"]
+        return Response({
+            "roles": roles
+        })
