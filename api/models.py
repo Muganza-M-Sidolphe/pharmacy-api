@@ -37,6 +37,8 @@ class Tenant(models.Model):
     phone = models.CharField(max_length=50)
     address = models.TextField()
     license_number = models.CharField(max_length=100)
+    country = models.CharField(max_length=100, default="RW")
+    currency = models.CharField(max_length=10, default="USD")
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -62,25 +64,23 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     objects = CUSTOMUserManager()
 
-    def save(self, *args, **kwargs):
-        if not self.user_code:
-            count = User.objects.count() + 1
-            self.user_code = f"USERCODE{str(count).zfill(4)}"
-        if not self.password.startswith("pbkdf2_"):
-            self.set_password (self.password)
-        super().save(*args, **kwargs)
-
-    def compare_password(self, raw_password):
-        return check_password(raw_password, self.password)
-
 
 class UserTenant(models.Model):
-    ROLE_CHOICES = (
-        ("OWNER", "OWNER"),
-        ("ADMIN", "ADMIN"),
-        ("STAFF", "STAFF"),
+    role_choices = (
+        ("OWNER", "Owner"), 
+        ("ADMIN", "Admin"),
+        ("CASHIER", "Cashier"), 
+        ("STORE_KEEPER", "Store Keeper"), 
+        ("ACCOUNTANT", "Accountant"), 
+        ("PHARMACIST", "Pharmacist")
     )
 
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="user_tenants")
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE)
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES)
+    user = models.ForeignKey(User, on_delete=models.CASCADE,related_name="memberships")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE,related_name="members")
+    role = models.CharField(max_length=20, choices=role_choices)
+    is_active = models.BooleanField(default=True)           
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'tenant')

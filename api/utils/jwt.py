@@ -1,15 +1,20 @@
 from rest_framework_simplejwt.tokens import RefreshToken
 
-def generate_token(*, user, tenant_id=None, role=None, is_super_admin=False):
+def generate_token(user, tenant=None, role=None):
     refresh = RefreshToken.for_user(user)
 
-    # 🔥 ALWAYS stringify UUIDs
     refresh["user_id"] = str(user.id)
-    refresh["tenant_id"] = str(tenant_id) if tenant_id else None
-    refresh["role"] = role
-    refresh["is_super_admin"] = is_super_admin
+    refresh["email"] = user.email
+    refresh["is_super_admin"] = user.is_super_admin
+
+    if tenant:
+        refresh["tenant_id"] = str(tenant.id)
+        refresh["tenant_name"] = tenant.name
+
+    if role:
+        refresh["role"] = role
 
     return {
         "refresh": str(refresh),
-        "access": str(refresh.access_token),
+        "access": str(refresh.access_token)
     }
