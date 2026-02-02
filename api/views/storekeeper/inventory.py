@@ -1,0 +1,1 @@
+# Storekeeper inventory views
