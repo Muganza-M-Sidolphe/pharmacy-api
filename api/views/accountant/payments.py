@@ -1,1 +1,0 @@
-# Accountant payments views

@@ -22,10 +22,18 @@ class LoginView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
-        # Owner only
+        # Check if user must change password (first login with temp password)
+        if user.must_change_password:
+            return Response({
+                "status": "MUST_CHANGE_PASSWORD",
+                "message": "You must change your password before continuing",
+                "userId": str(user.id),
+                "email": user.email
+            })
+
+        # Get all user tenants (not just OWNER)
         user_tenants = UserTenant.objects.filter(
-            user=user,
-            role="OWNER"
+            user=user
         ).select_related("tenant")
 
         if not user_tenants.exists():
@@ -34,15 +42,15 @@ class LoginView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        # Single pharmacy → auto login
+        # Single tenant → auto login
         if user_tenants.count() == 1:
             ut = user_tenants.first()
             token = generate_token(
                 user=user,
                 tenant=ut.tenant,
-                role="OWNER"
+                role=ut.role
             )
-
+        
             return Response({
                 "status": "OK",
                 "mode": "AUTO",
@@ -52,11 +60,11 @@ class LoginView(APIView):
                         "id": str(ut.tenant.id),
                         "name": ut.tenant.name
                     },
-                    "role": "OWNER"
+                    "role": ut.role
                 }
             })
 
-        # Multiple pharmacies → choose
+        # Multiple tenants → choose
         temp_token = generate_token(user=user)  # no tenant
 
         return Response({
@@ -64,7 +72,8 @@ class LoginView(APIView):
             "tenants": [
                 {
                     "id": str(ut.tenant.id),
-                    "name": ut.tenant.name
+                    "name": ut.tenant.name,
+                    "role": ut.role
                 }
                 for ut in user_tenants
             ],
