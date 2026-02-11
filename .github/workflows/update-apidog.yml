@@ -1,0 +1,69 @@
+name: Update Apidog on Push
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'api/models.py'
+      - 'api/serializers.py'
+      - 'api/views/**'
+      - 'api/urls.py'
+
+jobs:
+  update-apidog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Generate OpenAPI schema
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings
+        run: |
+          python manage.py generate_openapi
+
+      - name: Verify openapi.json was generated
+        run: |
+          if [ ! -f openapi.json ]; then
+            echo "ERROR: openapi.json not generated"
+            exit 1
+          fi
+          echo "✓ openapi.json generated successfully"
+          ls -lh openapi.json
+
+      - name: Push to Apidog (from file)
+        env:
+          APIDOG_API_URL: ${{ secrets.APIDOG_API_URL }}
+          APIDOG_TOKEN: ${{ secrets.APIDOG_TOKEN }}
+          APIDOG_PROJECT_ID: ${{ secrets.APIDOG_PROJECT_ID }}
+        run: |
+          python scripts/push_openapi_to_apidog.py \
+            --file openapi.json \
+            --project-id $APIDOG_PROJECT_ID \
+            --verbose
+        continue-on-error: false
+
+      - name: Notify on success
+        if: success()
+        run: echo "✓ Apidog project updated successfully"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "✗ Failed to update Apidog"
+          exit 1

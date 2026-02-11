@@ -1,10 +1,29 @@
 from django.urls import path
-from .views import RegisterTenantView,RegisterOwnerView, LoginView, LogoutView,SelectTenantView,CreateUserView, OwnerUserListView,OwnerUpdateUserView,OwnerUserStatusView,OwnerResetUserPasswordView,UsersSummaryView,SearchUsersView,RolesListView 
+from .views import RegisterTenantView,RegisterOwnerView, LoginView, LogoutView,SelectTenantView,CreateUserView, OwnerUserListView,OwnerUpdateUserView,OwnerUserStatusView,OwnerResetUserPasswordView,UsersSummaryView,SearchUsersView,RolesListView,ChangePasswordView, OwnerNotificationsView, OwnerNotificationDetailView
+from .views.storekeeper.inventory import InventoryListCreateView
+from .views.storekeeper.expiry_alerts import ExpiryAlertsView, ExpiryAlertsSummaryView, ExpiryAlertsCriticalView, ExpiredBatchesView
+from .views.cashier.dashboard import CashierDashboardSummaryView, CashierStockAlertsView, CashierAvailableMedicinesView, CashierPendingRequestsView, CashierExpiryAlertsView
+from .views.cashier.inventory import CashierInventoryListView
+from .views.cashier.sales import CashierCreateSaleView, CashierSalesListView, CashierSalesDetailView, StorekeeperApproveSaleView, StorekeeperRejectSaleView, StorekeeperPendingSalesView
+from .views.cashier.history import CashierHistorySummaryView, CashierSalesHistoryView, CashierSalesChartDataView, CashierCompletedSalesView, CashierPartialPaymentSalesView, CashierStockRequestsView
+from .views.accountant.invoices import AccountantInvoicesListView, AccountantInvoiceDetailView, AccountantApproveInvoiceView, AccountantRecordPartialPaymentView, AccountantMarkFullyPaidView, AccountantInvoicesSummaryView, AccountantInvoicesReportView
+from .views.accountant.sales import AccountantSalesSummaryView, AccountantDailySalesTrendView, AccountantPaymentMethodsDistributionView, AccountantExportSalesView
+from .views.accountant.expenses import AccountantExpensesListCreateView, AccountantExpenseDetailView, AccountantExpensesSummaryView
+from .views.accountant.reports import AccountantFinancialReportView, AccountantInventoryReportView, AccountantSalesReportView, AccountantExportReportView
+from .views.accountant.history import AccountantDashboardSummaryView, AccountantRecentNotificationsView, AccountantApprovedSalesListView, AccountantMarkNotificationAsReadView, AccountantMarkAllNotificationsAsReadView
+from .views.accountant.analytics import AccountantAnalyticsDashboardView, AccountantAnalyticsKPIView, AccountantAnalyticsTrendsView, AccountantAnalyticsForecastsView, AccountantAnalyticsInsightsView
+from .views.accountant.dashboard import AccountantDashboardPaymentsView, AccountantPendingPartialPaymentsView, AccountantOverduePaymentsView, AccountantTotalPaidAmountView, AccountantSelectedForInvoiceView, AccountantPartialPaymentRequestsView, AccountantQuickStatsView
+from .views.pharmacist.invoices import PharmacistInvoicesListView, PharmacistInvoiceDetailView, PharmacistInvoicesSummaryView, PharmacistApproveInvoiceView, PharmacistPaymentApprovalsListView, PharmacistApprovePaymentView, PharmacistInvoiceQuickStatsView
+from .views.pharmacist.partial_payments import PharmacistPartialPaymentsListView, PharmacistPartialPaymentSummaryView, PharmacistApprovePartialPaymentView, PharmacistRejectPartialPaymentView
+from .views.pharmacist.history import PharmacistApprovalHistoryListView, PharmacistHistorySummaryView, PharmacistHistoryExportView, PharmacistHistorySearchView
+from .views.pharmacist.dashboard import PharmacistDashboardSummaryView, PharmacistPendingInvoicesView, PharmacistRecentApprovalsView
+from .views.owner.partial_payments import OwnerPartialPaymentsListView, OwnerPartialPaymentSummaryView, OwnerApprovePartialPaymentView, OwnerRejectPartialPaymentView
 
 urlpatterns = [
     path("register-tenant/", RegisterTenantView.as_view()),
     path("register-owner/", RegisterOwnerView.as_view()),
     path("login/", LoginView.as_view(),name="login"),
+    path("change-password/", ChangePasswordView.as_view(),name="change-password"),
     path("logout/", LogoutView.as_view()),
     path("select-tenant/", SelectTenantView.as_view(),name="select-tenant"),
     path("owner/create-user/", CreateUserView.as_view(),name="create-user"),
@@ -12,7 +31,89 @@ urlpatterns = [
     path("owner/users/<user_id>/", OwnerUpdateUserView.as_view(), name="update-user"),
     path("owner/users/<user_id>/status/", OwnerUserStatusView.as_view(), name="user-status"),
     path("owner/users/<user_id>/reset-password/", OwnerResetUserPasswordView.as_view(), name="reset-password"),
-    path("tenants/<uuid:tenant_id>/users/summary/", UsersSummaryView.as_view(), name="users-summary"),
+    path("users/summary/", UsersSummaryView.as_view(), name="users-summary"),
+    path("owner/notifications/", OwnerNotificationsView.as_view(), name="owner-notifications"),
+    path("owner/notifications/<notification_id>/", OwnerNotificationDetailView.as_view(), name="owner-notification-detail"),
+    path("storekeeper/inventory/", InventoryListCreateView.as_view(), name="storekeeper-inventory"),
+    path("storekeeper/expiry-alerts/", ExpiryAlertsView.as_view(), name="storekeeper-expiry-alerts"),
+    path("storekeeper/expiry-alerts/summary/", ExpiryAlertsSummaryView.as_view(), name="storekeeper-expiry-alerts-summary"),
+    path("storekeeper/expiry-alerts/critical/", ExpiryAlertsCriticalView.as_view(), name="storekeeper-expiry-alerts-critical"),
+    path("storekeeper/expiry-alerts/expired/", ExpiredBatchesView.as_view(), name="storekeeper-expired-batches"),
+    path("cashier/dashboard/", CashierDashboardSummaryView.as_view(), name="cashier-dashboard"),
+    path("cashier/stock-alerts/", CashierStockAlertsView.as_view(), name="cashier-stock-alerts"),
+    path("cashier/medicines/", CashierAvailableMedicinesView.as_view(), name="cashier-medicines"),
+    path("cashier/inventory/", CashierInventoryListView.as_view(), name="cashier-inventory"),
+    path("cashier/pending-requests/", CashierPendingRequestsView.as_view(), name="cashier-pending-requests"),
+    path("cashier/expiry-alerts/", CashierExpiryAlertsView.as_view(), name="cashier-expiry-alerts"),
+    path("cashier/sales/", CashierCreateSaleView.as_view(), name="cashier-create-sale"),
+    path("cashier/sales/list/", CashierSalesListView.as_view(), name="cashier-sales-list"),
+    path("cashier/sales/<sale_id>/", CashierSalesDetailView.as_view(), name="cashier-sales-detail"),
+    path("storekeeper/sales/pending/", StorekeeperPendingSalesView.as_view(), name="storekeeper-pending-sales"),
+    path("storekeeper/sales/<sale_id>/approve/", StorekeeperApproveSaleView.as_view(), name="storekeeper-approve-sale"),
+    path("storekeeper/sales/<sale_id>/reject/", StorekeeperRejectSaleView.as_view(), name="storekeeper-reject-sale"),
+    path("cashier/history/summary/", CashierHistorySummaryView.as_view(), name="cashier-history-summary"),
+    path("cashier/history/sales/", CashierSalesHistoryView.as_view(), name="cashier-history-sales"),
+    path("cashier/history/chart-data/", CashierSalesChartDataView.as_view(), name="cashier-history-chart-data"),
+    path("cashier/history/completed/", CashierCompletedSalesView.as_view(), name="cashier-history-completed"),
+    path("cashier/history/partial-payments/", CashierPartialPaymentSalesView.as_view(), name="cashier-history-partial-payments"),
+    path("cashier/history/stock-requests/", CashierStockRequestsView.as_view(), name="cashier-history-stock-requests"),
+    path("accountant/invoices/", AccountantInvoicesListView.as_view(), name="accountant-invoices"),
+    path("accountant/invoices/<sale_id>/", AccountantInvoiceDetailView.as_view(), name="accountant-invoice-detail"),
+    path("accountant/invoices/<sale_id>/approve/", AccountantApproveInvoiceView.as_view(), name="accountant-approve-invoice"),
+    path("accountant/invoices/<sale_id>/partial-payment/", AccountantRecordPartialPaymentView.as_view(), name="accountant-partial-payment"),
+    path("accountant/invoices/<sale_id>/mark-paid/", AccountantMarkFullyPaidView.as_view(), name="accountant-mark-paid"),
+    path("accountant/invoices/summary/", AccountantInvoicesSummaryView.as_view(), name="accountant-invoices-summary"),
+    path("accountant/invoices/report/", AccountantInvoicesReportView.as_view(), name="accountant-invoices-report"),
+    path("accountant/sales/summary/", AccountantSalesSummaryView.as_view(), name="accountant-sales-summary"),
+    path("accountant/sales/daily-trend/", AccountantDailySalesTrendView.as_view(), name="accountant-sales-daily-trend"),
+    path("accountant/sales/payment-distribution/", AccountantPaymentMethodsDistributionView.as_view(), name="accountant-sales-payment-distribution"),
+    path("accountant/sales/export/", AccountantExportSalesView.as_view(), name="accountant-sales-export"),
+    path("accountant/expenses/", AccountantExpensesListCreateView.as_view(), name="accountant-expenses-list-create"),
+    path("accountant/expenses/<expense_id>/", AccountantExpenseDetailView.as_view(), name="accountant-expense-detail"),
+    path("accountant/expenses/summary/", AccountantExpensesSummaryView.as_view(), name="accountant-expenses-summary"),
+    path("accountant/reports/financial/", AccountantFinancialReportView.as_view(), name="accountant-reports-financial"),
+    path("accountant/reports/inventory/", AccountantInventoryReportView.as_view(), name="accountant-reports-inventory"),
+    path("accountant/reports/sales/", AccountantSalesReportView.as_view(), name="accountant-reports-sales"),
+    path("accountant/reports/export/", AccountantExportReportView.as_view(), name="accountant-reports-export"),
+    path("accountant/dashboard/", AccountantDashboardSummaryView.as_view(), name="accountant-dashboard"),
+    path("accountant/notifications/", AccountantRecentNotificationsView.as_view(), name="accountant-notifications"),
+    path("accountant/approved-sales/", AccountantApprovedSalesListView.as_view(), name="accountant-approved-sales"),
+    path("accountant/notifications/<notification_id>/read/", AccountantMarkNotificationAsReadView.as_view(), name="accountant-mark-notification-read"),
+    path("accountant/notifications/read-all/", AccountantMarkAllNotificationsAsReadView.as_view(), name="accountant-mark-all-notifications-read"),
+    path("accountant/analytics/", AccountantAnalyticsDashboardView.as_view(), name="accountant-analytics"),
+    path("accountant/analytics/kpis/", AccountantAnalyticsKPIView.as_view(), name="accountant-analytics-kpis"),
+    path("accountant/analytics/trends/", AccountantAnalyticsTrendsView.as_view(), name="accountant-analytics-trends"),
+    path("accountant/analytics/forecasts/", AccountantAnalyticsForecastsView.as_view(), name="accountant-analytics-forecasts"),
+    path("accountant/analytics/insights/", AccountantAnalyticsInsightsView.as_view(), name="accountant-analytics-insights"),
+    path("accountant/dashboard-payments/", AccountantDashboardPaymentsView.as_view(), name="accountant-dashboard-payments"),
+    path("accountant/pending-partial-payments/", AccountantPendingPartialPaymentsView.as_view(), name="accountant-pending-partial-payments"),
+    path("accountant/overdue-payments/", AccountantOverduePaymentsView.as_view(), name="accountant-overdue-payments"),
+    path("accountant/total-paid-amount/", AccountantTotalPaidAmountView.as_view(), name="accountant-total-paid-amount"),
+    path("accountant/selected-for-invoice/", AccountantSelectedForInvoiceView.as_view(), name="accountant-selected-for-invoice"),
+    path("accountant/payment-requests/", AccountantPartialPaymentRequestsView.as_view(), name="accountant-payment-requests"),
+    path("accountant/quick-stats/", AccountantQuickStatsView.as_view(), name="accountant-quick-stats"),
+    path("pharmacist/dashboard/", PharmacistDashboardSummaryView.as_view(), name="pharmacist-dashboard"),
+    path("pharmacist/pending-invoices/", PharmacistPendingInvoicesView.as_view(), name="pharmacist-pending-invoices"),
+    path("pharmacist/recent-approvals/", PharmacistRecentApprovalsView.as_view(), name="pharmacist-recent-approvals"),
+    path("pharmacist/invoices/", PharmacistInvoicesListView.as_view(), name="pharmacist-invoices-list"),
+    path("pharmacist/invoices/<invoice_id>/", PharmacistInvoiceDetailView.as_view(), name="pharmacist-invoices-detail"),
+    path("pharmacist/invoices/summary/", PharmacistInvoicesSummaryView.as_view(), name="pharmacist-invoices-summary"),
+    path("pharmacist/invoices/<invoice_id>/approve/", PharmacistApproveInvoiceView.as_view(), name="pharmacist-invoices-approve"),
+    path("pharmacist/payment-approvals/", PharmacistPaymentApprovalsListView.as_view(), name="pharmacist-payment-approvals"),
+    path("pharmacist/invoices/<invoice_id>/payment/approve/", PharmacistApprovePaymentView.as_view(), name="pharmacist-payment-approve"),
+    path("pharmacist/quick-stats/", PharmacistInvoiceQuickStatsView.as_view(), name="pharmacist-quick-stats"),
+    path("pharmacist/partial-payments/", PharmacistPartialPaymentsListView.as_view(), name="pharmacist-partial-payments"),
+    path("pharmacist/partial-payments/summary/", PharmacistPartialPaymentSummaryView.as_view(), name="pharmacist-partial-payments-summary"),
+    path("pharmacist/partial-payments/<invoice_id>/approve/", PharmacistApprovePartialPaymentView.as_view(), name="pharmacist-partial-payments-approve"),
+    path("pharmacist/partial-payments/<invoice_id>/reject/", PharmacistRejectPartialPaymentView.as_view(), name="pharmacist-partial-payments-reject"),
+    path("pharmacist/approval-history/", PharmacistApprovalHistoryListView.as_view(), name="pharmacist-approval-history"),
+    path("pharmacist/approval-history/summary/", PharmacistHistorySummaryView.as_view(), name="pharmacist-approval-history-summary"),
+    path("pharmacist/approval-history/export/", PharmacistHistoryExportView.as_view(), name="pharmacist-approval-history-export"),
+    path("pharmacist/approval-history/search/", PharmacistHistorySearchView.as_view(), name="pharmacist-approval-history-search"),
+    path("owner/partial-payments/", OwnerPartialPaymentsListView.as_view(), name="owner-partial-payments"),
+    path("owner/partial-payments/summary/", OwnerPartialPaymentSummaryView.as_view(), name="owner-partial-payments-summary"),
+    path("owner/partial-payments/<invoice_id>/approve/", OwnerApprovePartialPaymentView.as_view(), name="owner-partial-payments-approve"),
+    path("owner/partial-payments/<invoice_id>/reject/", OwnerRejectPartialPaymentView.as_view(), name="owner-partial-payments-reject"),
     path("roles/", RolesListView.as_view(), name="roles-list"),
     path("users/search/", SearchUsersView.as_view(), name="search-users"),
 ]

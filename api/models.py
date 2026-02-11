@@ -64,23 +64,167 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     objects = CUSTOMUserManager()
 
+    def save(self, *args, **kwargs):
+        if not self.user_code:
+            count = User.objects.count() + 1
+            self.user_code = f"USERCODE{str(count).zfill(4)}"
+        if not self.password.startswith("pbkdf2_"):
+            self.set_password(self.password)
+        super().save(*args, **kwargs)
+
+    def compare_password(self, raw_password):
+        return check_password(raw_password, self.password)
+
 
 class UserTenant(models.Model):
-    role_choices = (
-        ("OWNER", "Owner"), 
-        ("ADMIN", "Admin"),
-        ("CASHIER", "Cashier"), 
-        ("STORE_KEEPER", "Store Keeper"), 
-        ("ACCOUNTANT", "Accountant"), 
-        ("PHARMACIST", "Pharmacist")
+    ROLE_CHOICES = (
+        ("OWNER", "OWNER"),
+        ("ADMIN", "ADMIN"),
+        ("CASHIER", "CASHIER"),
+        ("STORE_KEEPER", "STORE_KEEPER"),
+        ("ACCOUNTANT", "ACCOUNTANT"),
+        ("PHARMACIST", "PHARMACIST"),
     )
 
-    user = models.ForeignKey(User, on_delete=models.CASCADE,related_name="memberships")
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE,related_name="members")
-    role = models.CharField(max_length=20, choices=role_choices)
-    is_active = models.BooleanField(default=True)           
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="user_tenants")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE)
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES)
 
+
+class Notification(models.Model):
+    """Notifications for a tenant or a specific user."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE)
+    title = models.CharField(max_length=255)
+    message = models.TextField()
+    recipient = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
+    is_read = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
-    class Meta:
-        unique_together = ('user', 'tenant')
+    def __str__(self):
+        return f"Notification({self.tenant.name}): {self.title[:50]}"
+
+
+class Medicine(models.Model):
+    """Represents a medicine/product in a tenant's inventory."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE)
+    brand_name = models.CharField(max_length=255)
+    generic_name = models.CharField(max_length=255, null=True, blank=True)
+    manufacturer = models.CharField(max_length=255, null=True, blank=True)
+    category = models.CharField(max_length=255, null=True, blank=True)
+    unit = models.CharField(max_length=50, null=True, blank=True)
+    description = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.brand_name} ({self.tenant.name})"
+
+
+class StockBatch(models.Model):
+    """A stock batch for a medicine (tracks expiry and quantities)."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    medicine = models.ForeignKey(Medicine, on_delete=models.CASCADE, related_name='batches')
+    batch_number = models.CharField(max_length=100)
+    quantity = models.IntegerField(default=0)
+    purchase_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    selling_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    manufacture_date = models.DateField(null=True, blank=True)
+    expiry_date = models.DateField(null=True, blank=True, db_index=True)
+    supplier_name = models.CharField(max_length=255, null=True, blank=True)
+    supplier_phone = models.CharField(max_length=50, null=True, blank=True)
+    supplier_address = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.medicine.brand_name} - {self.batch_number}"
+
+
+class Sale(models.Model):
+    """Represents a sale/invoice created by cashier."""
+    STATUS_CHOICES = (
+        ("PENDING", "Pending approval"),
+        ("APPROVED", "Approved by storekeeper"),
+        ("REJECTED", "Rejected by storekeeper"),
+        ("COMPLETED", "Completed/Paid"),
+        ("CANCELLED", "Cancelled"),
+    )
+    PAYMENT_OPTION_CHOICES = (
+        ("FULL", "Full Payment"),
+        ("PARTIAL", "Partial Payment"),
+        ("CREDIT", "Credit"),
+    )
+    PAYMENT_METHOD_CHOICES = (
+        ("CASH", "Cash"),
+        ("CARD", "Card"),
+        ("UPI", "UPI"),
+        ("MOBILE_MONEY", "Mobile Money"),
+        ("BANK_TRANSFER", "Bank Transfer"),
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='sales')
+    cashier = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='created_sales')
+    invoice_number = models.CharField(max_length=50, unique=True)
+    customer_name = models.CharField(max_length=255, null=True, blank=True)
+    customer_phone = models.CharField(max_length=50, null=True, blank=True)
+    notes = models.TextField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="PENDING")
+    
+    payment_option = models.CharField(max_length=20, choices=PAYMENT_OPTION_CHOICES, default="FULL")
+    payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES, default="CASH")
+    
+    subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    paid_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    due_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    approved_at = models.DateTimeField(null=True, blank=True)
+    approved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='approved_sales')
+
+    def __str__(self):
+        return f"Sale {self.invoice_number} - {self.customer_name or 'No customer'}"
+
+
+class SaleItem(models.Model):
+    """Individual items in a sale."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    sale = models.ForeignKey(Sale, on_delete=models.CASCADE, related_name='items')
+    medicine = models.ForeignKey(Medicine, on_delete=models.PROTECT)
+    batch = models.ForeignKey(StockBatch, on_delete=models.PROTECT)
+    quantity = models.IntegerField()
+    unit_price = models.DecimalField(max_digits=12, decimal_places=2)
+    subtotal = models.DecimalField(max_digits=12, decimal_places=2)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.medicine.brand_name} x {self.quantity} in Sale {self.sale.invoice_number}"
+
+
+class ExpenseCategory(models.Model):
+    """Categories for expenses (per tenant)."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='expense_categories')
+    name = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.name} ({self.tenant.name})"
+
+
+class Expense(models.Model):
+    """Expense record for a tenant."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='expenses')
+    category = models.ForeignKey(ExpenseCategory, on_delete=models.SET_NULL, null=True, blank=True, related_name='expenses')
+    amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    description = models.TextField(null=True, blank=True)
+    expense_date = models.DateField()
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Expense {self.id} - {self.amount} ({self.tenant.name})"

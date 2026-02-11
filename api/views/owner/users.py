@@ -238,7 +238,12 @@ class OwnerResetUserPasswordView(APIView):
 class UsersSummaryView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def get(self, request, tenant_id):
+    def get(self, request):
+        tenant_id = request.query_params.get("tenantId")
+        
+        if not tenant_id:
+            return Response({"detail": "tenantId is required"}, status=400)
+            
         tenant = get_object_or_404(Tenant, id=tenant_id)
 
         # Ensure user belongs to tenant
@@ -275,7 +280,12 @@ class UsersSummaryView(APIView):
 class SearchUsersView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def get(self, request, tenant_id):
+    def get(self, request):
+        tenant_id = request.query_params.get("tenantId")
+        
+        if not tenant_id:
+            return Response({"detail": "tenantId is required"}, status=400)
+            
         tenant = Tenant.objects.filter(id=tenant_id, is_active=True).first()
         if not tenant:
             return Response({"detail": "Tenant not found"}, status=404)

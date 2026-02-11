@@ -2,6 +2,7 @@
 from .views.auth.login import LoginView
 from .views.auth.logout import LogoutView
 from .views.auth.select_tenant import SelectTenantView
+from .views.auth.change_password import ChangePasswordView
 from .views.owner.users import (
     CreateUserView,
     OwnerUserListView,
@@ -22,6 +23,7 @@ __all__ = [
     'LoginView',
     'LogoutView',
     'SelectTenantView',
+    'ChangePasswordView',
     'CreateUserView',
     'OwnerUserListView',
     'OwnerUpdateUserView',

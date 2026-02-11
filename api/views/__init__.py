@@ -1,7 +1,15 @@
 from .auth.login import LoginView
 from .auth.logout import LogoutView
 from .auth.select_tenant import SelectTenantView
+from .auth.change_password import ChangePasswordView
 from .owner.users import CreateUserView, OwnerUserListView, OwnerUpdateUserView, OwnerUserStatusView, OwnerResetUserPasswordView, UsersSummaryView, SearchUsersView, RolesListView
+from .owner.notifications import OwnerNotificationsView, OwnerNotificationDetailView
+from .storekeeper.inventory import InventoryListCreateView
+from .storekeeper.expiry_alerts import ExpiryAlertsView, ExpiryAlertsSummaryView, ExpiryAlertsCriticalView, ExpiredBatchesView
+from .cashier.dashboard import CashierDashboardSummaryView, CashierStockAlertsView, CashierAvailableMedicinesView, CashierPendingRequestsView, CashierExpiryAlertsView
+from .cashier.sales import CashierCreateSaleView, CashierSalesListView, CashierSalesDetailView, StorekeeperApproveSaleView, StorekeeperRejectSaleView, StorekeeperPendingSalesView
+from .cashier.history import CashierHistorySummaryView, CashierSalesHistoryView, CashierSalesChartDataView, CashierCompletedSalesView, CashierPartialPaymentSalesView, CashierStockRequestsView
+from .owner.settings import PharmacySettingsView
 
 # Import from legacy_views directly to avoid circular import
 from ..legacy_views import RegisterTenantView, RegisterOwnerView
@@ -10,6 +18,7 @@ __all__ = [
     'LoginView',
     'LogoutView', 
     'SelectTenantView',
+    'ChangePasswordView',
     'CreateUserView',
     'OwnerUserListView',
     'OwnerUpdateUserView',
@@ -18,6 +27,31 @@ __all__ = [
     'UsersSummaryView',
     'SearchUsersView',
     'RolesListView',
+    'OwnerNotificationsView',
+    'OwnerNotificationDetailView',
+    'InventoryListCreateView',
+    'ExpiryAlertsView',
+    'ExpiryAlertsSummaryView',
+    'ExpiryAlertsCriticalView',
+    'ExpiredBatchesView',
+    'CashierDashboardSummaryView',
+    'CashierStockAlertsView',
+    'CashierAvailableMedicinesView',
+    'CashierPendingRequestsView',
+    'CashierExpiryAlertsView',
+    'CashierCreateSaleView',
+    'CashierSalesListView',
+    'CashierSalesDetailView',
+    'StorekeeperApproveSaleView',
+    'StorekeeperRejectSaleView',
+    'StorekeeperPendingSalesView',
+    'CashierHistorySummaryView',
+    'CashierSalesHistoryView',
+    'CashierSalesChartDataView',
+    'CashierCompletedSalesView',
+    'CashierPartialPaymentSalesView',
+    'CashierStockRequestsView',
+    'PharmacySettingsView',
     'RegisterTenantView',
     'RegisterOwnerView'
 ]
