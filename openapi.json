@@ -3057,6 +3057,7 @@
         "/api/register-owner/": {
             "post": {
                 "operationId": "register_owner_create",
+                "description": "Deprecated: Use RegisterTenantView instead.",
                 "tags": [
                     "register-owner"
                 ],
@@ -3070,6 +3071,7 @@
         "/api/register-tenant/": {
             "post": {
                 "operationId": "register_tenant_create",
+                "description": "Combined registration for tenant and owner/pharmacist in one API.",
                 "tags": [
                     "register-tenant"
                 ],

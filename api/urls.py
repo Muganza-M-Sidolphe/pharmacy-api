@@ -21,7 +21,6 @@ from .views.owner.partial_payments import OwnerPartialPaymentsListView, OwnerPar
 
 urlpatterns = [
     path("register-tenant/", RegisterTenantView.as_view()),
-    path("register-owner/", RegisterOwnerView.as_view()),
     path("login/", LoginView.as_view(),name="login"),
     path("change-password/", ChangePasswordView.as_view(),name="change-password"),
     path("logout/", LogoutView.as_view()),
