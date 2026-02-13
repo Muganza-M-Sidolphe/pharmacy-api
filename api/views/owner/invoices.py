@@ -301,6 +301,106 @@ class OwnerInvoicesSummaryView(OwnerInvoicesBaseView):
         )
 
 
+class OwnerInvoicesDashboardView(OwnerInvoicesBaseView):
+    @extend_schema(
+        description=(
+            "Owner invoices consolidated payload (summary cards, charts, and "
+            "recent invoices table)"
+        ),
+        tags=["owner"],
+    )
+    def get(self, request):
+        tenant_id, error = self._get_tenant_id(request)
+        if error:
+            return error
+
+        access_error = self._ensure_owner_access(request, tenant_id)
+        if access_error:
+            return access_error
+
+        invoices = self._owner_visible_invoices(tenant_id).order_by("-created_at")
+        invoices, filter_error = self._apply_common_filters(request, invoices)
+        if filter_error:
+            return filter_error
+
+        invoices_list = list(invoices)
+        total_invoices = len(invoices_list)
+
+        total_amount = sum((invoice.total_amount for invoice in invoices_list), Decimal("0.00"))
+        paid_amount = sum((invoice.paid_amount for invoice in invoices_list), Decimal("0.00"))
+        due_amount = sum((invoice.due_amount for invoice in invoices_list), Decimal("0.00"))
+
+        by_status = {}
+        by_payment_state = {
+            "PAID": 0,
+            "PARTIAL": 0,
+            "UNPAID": 0,
+        }
+        daily_paid = {}
+
+        for invoice in invoices_list:
+            by_status[invoice.status] = by_status.get(invoice.status, 0) + 1
+
+            if invoice.due_amount == 0:
+                by_payment_state["PAID"] += 1
+            elif invoice.paid_amount > 0:
+                by_payment_state["PARTIAL"] += 1
+            else:
+                by_payment_state["UNPAID"] += 1
+
+            day = invoice.created_at.date().isoformat()
+            daily_paid.setdefault(day, Decimal("0.00"))
+            daily_paid[day] += invoice.paid_amount
+
+        recent_rows = []
+        for invoice in invoices_list[:10]:
+            recent_rows.append(
+                {
+                    "invoiceId": str(invoice.id),
+                    "invoiceNumber": invoice.invoice_number,
+                    "customerName": invoice.customer_name or "Walk-in Customer",
+                    "customerPhone": invoice.customer_phone or "",
+                    "status": invoice.status,
+                    "paymentOption": invoice.payment_option,
+                    "totalAmount": str(invoice.total_amount),
+                    "paidAmount": str(invoice.paid_amount),
+                    "dueAmount": str(invoice.due_amount),
+                    "createdAt": invoice.created_at,
+                }
+            )
+
+        return Response(
+            {
+                "summary": {
+                    "totalInvoices": total_invoices,
+                    "totalAmount": str(total_amount),
+                    "paidAmount": str(paid_amount),
+                    "dueAmount": str(due_amount),
+                    "paidInvoices": by_payment_state["PAID"],
+                    "partialInvoices": by_payment_state["PARTIAL"],
+                    "unpaidInvoices": by_payment_state["UNPAID"],
+                },
+                "statusDistribution": [
+                    {"status": status_key, "count": count}
+                    for status_key, count in by_status.items()
+                ],
+                "paymentStatusDistribution": [
+                    {"status": status_key, "count": count}
+                    for status_key, count in by_payment_state.items()
+                ],
+                "collectionsTrend": {
+                    "labels": sorted(daily_paid.keys()),
+                    "data": [float(daily_paid[key]) for key in sorted(daily_paid.keys())],
+                },
+                "recentInvoices": {
+                    "count": total_invoices,
+                    "results": recent_rows,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class OwnerApprovePartialInvoiceView(OwnerInvoicesBaseView):
     @extend_schema(
         description="Owner final approval for partial-payment invoice (confirm loan)",

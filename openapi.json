@@ -2296,6 +2296,31 @@
                 }
             }
         },
+        "/api/owner/invoices/dashboard/": {
+            "get": {
+                "operationId": "owner_invoices_dashboard_retrieve",
+                "description": "Owner invoices consolidated payload (summary cards, charts, and recent invoices table)",
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/owner/invoices/summary/": {
             "get": {
                 "operationId": "owner_invoices_summary_retrieve",
@@ -2496,6 +2521,31 @@
                 ],
                 "responses": {
                     "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/owner/notifications/dashboard/": {
+            "get": {
+                "operationId": "owner_notifications_dashboard_retrieve",
+                "description": "Owner notifications consolidated payload (summary + breakdown + recent list)",
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
                         "description": "No response body"
                     }
                 }
@@ -2744,6 +2794,31 @@
             "get": {
                 "operationId": "owner_reports_user_management_summary_retrieve",
                 "description": "Owner users summary cards",
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/owner/sales/": {
+            "get": {
+                "operationId": "owner_sales_retrieve",
+                "description": "Owner sales consolidated payload (summary cards, trend chart, payment distribution chart, recent sales table)",
                 "tags": [
                     "owner"
                 ],
@@ -3190,6 +3265,31 @@
                         "required": true
                     }
                 ],
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/owner/users/dashboard/": {
+            "get": {
+                "operationId": "owner_users_dashboard_retrieve",
+                "description": "Owner users consolidated payload (summary cards + filtered user list + action endpoints)",
                 "tags": [
                     "owner"
                 ],

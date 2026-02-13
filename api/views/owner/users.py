@@ -10,6 +10,7 @@ from ...models import User, UserTenant, Tenant
 from ...serializers import CreateUserSerializer, UserUpdateSerializer
 from ...permissions import IsOwner
 from ...utils.password import generate_temp_password
+from drf_spectacular.utils import extend_schema
 
 
 class CreateUserView(APIView):
@@ -275,6 +276,110 @@ class UsersSummaryView(APIView):
             "inactiveUsers": inactive_users,
             "byRole": by_role
         })
+
+
+class OwnerUsersDashboardView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        description=(
+            "Owner users consolidated payload (summary cards + filtered user list + action endpoints)"
+        ),
+        tags=["owner"],
+    )
+    def get(self, request):
+        tenant_id = request.query_params.get("tenantId")
+        if not tenant_id:
+            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id, role="OWNER").exists():
+            return Response({"detail": "Unauthorized tenant access"}, status=status.HTTP_403_FORBIDDEN)
+
+        search = request.query_params.get("search", "").strip()
+        role = request.query_params.get("role")
+        status_filter = request.query_params.get("status")
+
+        try:
+            page = int(request.query_params.get("page", 1))
+            page_size = int(request.query_params.get("pageSize", 10))
+        except ValueError:
+            return Response(
+                {"detail": "page and pageSize must be integers"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if page <= 0 or page_size <= 0:
+            return Response(
+                {"detail": "page and pageSize must be greater than 0"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        base_qs = UserTenant.objects.filter(tenant_id=tenant_id).select_related("user")
+        role_counts = {
+            row["role"]: row["count"]
+            for row in base_qs.values("role").annotate(count=Count("id"))
+        }
+
+        filtered_qs = base_qs
+        if role:
+            filtered_qs = filtered_qs.filter(role=role)
+
+        if status_filter:
+            if status_filter.lower() == "active":
+                filtered_qs = filtered_qs.filter(user__is_active=True)
+            elif status_filter.lower() == "inactive":
+                filtered_qs = filtered_qs.filter(user__is_active=False)
+
+        if search:
+            filtered_qs = filtered_qs.filter(
+                Q(user__name__icontains=search)
+                | Q(user__email__icontains=search)
+                | Q(role__icontains=search)
+            )
+
+        paginator = Paginator(filtered_qs.order_by("-user__created_at"), page_size)
+        page_obj = paginator.get_page(page)
+
+        results = []
+        for membership in page_obj:
+            results.append(
+                {
+                    "id": str(membership.user.id),
+                    "name": membership.user.name,
+                    "email": membership.user.email,
+                    "role": membership.role,
+                    "status": "Active" if membership.user.is_active else "Inactive",
+                    "createdAt": membership.user.created_at,
+                }
+            )
+
+        return Response(
+            {
+                "summary": {
+                    "totalUsers": base_qs.count(),
+                    "activeUsers": base_qs.filter(user__is_active=True).count(),
+                    "inactiveUsers": base_qs.filter(user__is_active=False).count(),
+                    "owners": role_counts.get("OWNER", 0),
+                    "cashiers": role_counts.get("CASHIER", 0),
+                    "storeKeepers": role_counts.get("STORE_KEEPER", 0),
+                    "accountants": role_counts.get("ACCOUNTANT", 0),
+                    "pharmacists": role_counts.get("PHARMACIST", 0),
+                },
+                "list": {
+                    "count": paginator.count,
+                    "next": page + 1 if page_obj.has_next() else None,
+                    "previous": page - 1 if page_obj.has_previous() else None,
+                    "results": results,
+                },
+                "actions": {
+                    "createUser": "/api/owner/create-user/",
+                    "updateUser": "/api/owner/users/{user_id}/?tenantId={tenantId}",
+                    "changeStatus": "/api/owner/users/{user_id}/status/?tenantId={tenantId}",
+                    "resetPassword": "/api/owner/users/{user_id}/reset-password/?tenantId={tenantId}",
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class SearchUsersView(APIView):

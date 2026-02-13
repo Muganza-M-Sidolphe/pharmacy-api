@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import RegisterTenantView,RegisterOwnerView, LoginView, LogoutView,SelectTenantView,CreateUserView, OwnerUserListView,OwnerUpdateUserView,OwnerUserStatusView,OwnerResetUserPasswordView,UsersSummaryView,SearchUsersView,RolesListView,ChangePasswordView, OwnerNotificationsView, OwnerNotificationDetailView, OwnerDashboardView, OwnerDashboardSummaryView, OwnerDashboardSalesTrendView, OwnerDashboardPartialInvoicesView, OwnerTenantsListView, OwnerSwitchTenantView, PharmacySettingsView, OwnerPharmaciesView, OwnerSettingsOverviewView, OwnerSettingsConsolidatedView, OwnerInvoicesListView, OwnerInvoiceDetailView, OwnerInvoicesSummaryView, OwnerApprovePartialInvoiceView, OwnerRejectPartialInvoiceView, OwnerInventoryView, OwnerInventorySummaryView, OwnerInventoryMedicineDetailView, OwnerSalesSummaryView, OwnerDailySalesTrendView, OwnerPaymentMethodsDistributionView, OwnerExportSalesView, OwnerSalesReportsDashboardView, OwnerUserManagementReportView, OwnerUsersSummaryCardsView
+from .views import RegisterTenantView,RegisterOwnerView, LoginView, LogoutView,SelectTenantView,CreateUserView, OwnerUserListView,OwnerUpdateUserView,OwnerUserStatusView,OwnerResetUserPasswordView,UsersSummaryView,SearchUsersView,RolesListView,ChangePasswordView, OwnerUsersDashboardView, OwnerNotificationsView, OwnerNotificationDetailView, OwnerNotificationsDashboardView, OwnerDashboardView, OwnerDashboardSummaryView, OwnerDashboardSalesTrendView, OwnerDashboardPartialInvoicesView, OwnerTenantsListView, OwnerSwitchTenantView, PharmacySettingsView, OwnerPharmaciesView, OwnerSettingsOverviewView, OwnerSettingsConsolidatedView, OwnerInvoicesListView, OwnerInvoiceDetailView, OwnerInvoicesSummaryView, OwnerInvoicesDashboardView, OwnerApprovePartialInvoiceView, OwnerRejectPartialInvoiceView, OwnerInventoryView, OwnerInventorySummaryView, OwnerInventoryMedicineDetailView, OwnerSalesDashboardView, OwnerSalesSummaryView, OwnerDailySalesTrendView, OwnerPaymentMethodsDistributionView, OwnerExportSalesView, OwnerSalesReportsDashboardView, OwnerUserManagementReportView, OwnerUsersSummaryCardsView
 from .views.storekeeper.inventory import InventoryListCreateView
 from .views.storekeeper.expiry_alerts import ExpiryAlertsView, ExpiryAlertsSummaryView, ExpiryAlertsCriticalView, ExpiredBatchesView
 from .views.cashier.dashboard import CashierDashboardSummaryView, CashierStockAlertsView, CashierAvailableMedicinesView, CashierPendingRequestsView, CashierExpiryAlertsView
@@ -26,18 +26,21 @@ urlpatterns = [
     path("logout/", LogoutView.as_view()),
     path("select-tenant/", SelectTenantView.as_view(),name="select-tenant"),
     path("owner/create-user/", CreateUserView.as_view(),name="create-user"),
+    path("owner/users/dashboard/", OwnerUsersDashboardView.as_view(), name="owner-users-dashboard"),
     path("owner/users/", OwnerUserListView.as_view(), name="users"),
     path("owner/users/<uuid:user_id>/", OwnerUpdateUserView.as_view(), name="update-user"),
     path("owner/users/<uuid:user_id>/status/", OwnerUserStatusView.as_view(), name="user-status"),
     path("owner/users/<uuid:user_id>/reset-password/", OwnerResetUserPasswordView.as_view(), name="reset-password"),
     path("users/summary/", UsersSummaryView.as_view(), name="users-summary"),
     path("owner/notifications/", OwnerNotificationsView.as_view(), name="owner-notifications"),
+    path("owner/notifications/dashboard/", OwnerNotificationsDashboardView.as_view(), name="owner-notifications-dashboard"),
     path("owner/notifications/<uuid:notification_id>/", OwnerNotificationDetailView.as_view(), name="owner-notification-detail"),
     path("owner/dashboard/", OwnerDashboardView.as_view(), name="owner-dashboard"),
     path("owner/dashboard/summary/", OwnerDashboardSummaryView.as_view(), name="owner-dashboard-summary"),
     path("owner/dashboard/sales-trend/", OwnerDashboardSalesTrendView.as_view(), name="owner-dashboard-sales-trend"),
     path("owner/dashboard/partial-invoices/", OwnerDashboardPartialInvoicesView.as_view(), name="owner-dashboard-partial-invoices"),
     path("owner/invoices/", OwnerInvoicesListView.as_view(), name="owner-invoices"),
+    path("owner/invoices/dashboard/", OwnerInvoicesDashboardView.as_view(), name="owner-invoices-dashboard"),
     path("owner/invoices/summary/", OwnerInvoicesSummaryView.as_view(), name="owner-invoices-summary"),
     path("owner/invoices/<uuid:invoice_id>/", OwnerInvoiceDetailView.as_view(), name="owner-invoice-detail"),
     path("owner/invoices/<uuid:invoice_id>/approve/", OwnerApprovePartialInvoiceView.as_view(), name="owner-invoice-approve"),
@@ -45,6 +48,7 @@ urlpatterns = [
     path("owner/inventory/", OwnerInventoryView.as_view(), name="owner-inventory"),
     path("owner/inventory/summary/", OwnerInventorySummaryView.as_view(), name="owner-inventory-summary"),
     path("owner/inventory/<uuid:medicine_id>/", OwnerInventoryMedicineDetailView.as_view(), name="owner-inventory-medicine-detail"),
+    path("owner/sales/", OwnerSalesDashboardView.as_view(), name="owner-sales-dashboard"),
     path("owner/sales/summary/", OwnerSalesSummaryView.as_view(), name="owner-sales-summary"),
     path("owner/sales/daily-trend/", OwnerDailySalesTrendView.as_view(), name="owner-sales-daily-trend"),
     path("owner/sales/payment-distribution/", OwnerPaymentMethodsDistributionView.as_view(), name="owner-sales-payment-distribution"),
