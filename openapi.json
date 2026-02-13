@@ -339,7 +339,8 @@
                         "in": "path",
                         "name": "expense_id",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "uuid"
                         },
                         "required": true
                     }
@@ -379,7 +380,8 @@
                         "in": "path",
                         "name": "expense_id",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "uuid"
                         },
                         "required": true
                     }
@@ -439,7 +441,8 @@
                         "in": "path",
                         "name": "expense_id",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "uuid"
                         },
                         "required": true
                     }
@@ -541,7 +544,8 @@
                         "in": "path",
                         "name": "sale_id",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "uuid"
                         },
                         "required": true
                     }
@@ -583,7 +587,8 @@
                         "in": "path",
                         "name": "sale_id",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "uuid"
                         },
                         "required": true
                     }
@@ -618,7 +623,8 @@
                         "in": "path",
                         "name": "sale_id",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "uuid"
                         },
                         "required": true
                     }
@@ -689,7 +695,8 @@
                         "in": "path",
                         "name": "sale_id",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "uuid"
                         },
                         "required": true
                     }
@@ -839,7 +846,8 @@
                         "in": "path",
                         "name": "notification_id",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "uuid"
                         },
                         "required": true
                     }
@@ -1690,7 +1698,8 @@
                         "in": "path",
                         "name": "sale_id",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "uuid"
                         },
                         "required": true
                     }
@@ -1857,6 +1866,461 @@
                 }
             }
         },
+        "/api/owner/dashboard/": {
+            "get": {
+                "operationId": "owner_dashboard_retrieve",
+                "description": "Combined owner dashboard payload (summary, sales trend, partially paid invoices)",
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/owner/dashboard/partial-invoices/": {
+            "get": {
+                "operationId": "owner_dashboard_partial_invoices_retrieve",
+                "description": "Owner dashboard table for partially paid invoices",
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/owner/dashboard/sales-trend/": {
+            "get": {
+                "operationId": "owner_dashboard_sales_trend_retrieve",
+                "description": "Owner dashboard sales trend for the last N days (default 7)",
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/owner/dashboard/summary/": {
+            "get": {
+                "operationId": "owner_dashboard_summary_retrieve",
+                "description": "Owner dashboard KPI cards: total medicines, low stock items, total sales, expiring soon",
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/owner/inventory/": {
+            "get": {
+                "operationId": "owner_inventory_retrieve",
+                "description": "Owner inventory page data (summary cards + medicine list)",
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            },
+            "post": {
+                "operationId": "owner_inventory_create",
+                "description": "Owner add medicine with initial stock batch",
+                "tags": [
+                    "owner"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AddMedicineWithStockRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AddMedicineWithStockRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AddMedicineWithStockRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/owner/inventory/{medicine_id}/": {
+            "get": {
+                "operationId": "owner_inventory_retrieve_2",
+                "description": "Get medicine detail for owner",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "medicine_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "owner_inventory_partial_update",
+                "description": "Update medicine basic fields for owner",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "medicine_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "owner_inventory_destroy",
+                "description": "Delete medicine for owner",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "medicine_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/owner/inventory/summary/": {
+            "get": {
+                "operationId": "owner_inventory_summary_retrieve",
+                "description": "Owner inventory summary cards",
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/owner/invoices/": {
+            "get": {
+                "operationId": "owner_invoices_retrieve",
+                "description": "List owner invoices with filters and pagination",
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/owner/invoices/{invoice_id}/": {
+            "get": {
+                "operationId": "owner_invoices_retrieve_2",
+                "description": "Get one owner invoice details with items",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "invoice_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/owner/invoices/{invoice_id}/approve/": {
+            "post": {
+                "operationId": "owner_invoices_approve_create",
+                "description": "Owner final approval for partial-payment invoice (confirm loan)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "invoice_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/owner/invoices/{invoice_id}/reject/": {
+            "post": {
+                "operationId": "owner_invoices_reject_create",
+                "description": "Owner rejects partial-payment invoice",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "invoice_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/owner/invoices/summary/": {
+            "get": {
+                "operationId": "owner_invoices_summary_retrieve",
+                "description": "Owner invoice summary metrics",
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/owner/notifications/": {
             "get": {
                 "operationId": "owner_notifications_list",
@@ -1950,7 +2414,8 @@
                         "in": "path",
                         "name": "notification_id",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "uuid"
                         },
                         "required": true
                     }
@@ -2009,7 +2474,8 @@
                         "in": "path",
                         "name": "notification_id",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "uuid"
                         },
                         "required": true
                     }
@@ -2076,7 +2542,8 @@
                         "in": "path",
                         "name": "invoice_id",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "uuid"
                         },
                         "required": true
                     }
@@ -2137,7 +2604,8 @@
                         "in": "path",
                         "name": "invoice_id",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "uuid"
                         },
                         "required": true
                     }
@@ -2222,6 +2690,398 @@
                 }
             }
         },
+        "/api/owner/reports/": {
+            "get": {
+                "operationId": "owner_reports_retrieve",
+                "description": "Owner sales report dashboard: KPI cards, trend charts, category distribution, key metrics",
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/owner/reports/user-management/": {
+            "get": {
+                "operationId": "owner_reports_user_management_retrieve",
+                "description": "Owner user management report (summary cards + user list)",
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/owner/reports/user-management/summary/": {
+            "get": {
+                "operationId": "owner_reports_user_management_summary_retrieve",
+                "description": "Owner users summary cards",
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/owner/sales/daily-trend/": {
+            "get": {
+                "operationId": "owner_sales_daily_trend_retrieve",
+                "description": "Get owner daily sales totals for charting",
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DailySalesTrend"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/owner/sales/export/": {
+            "get": {
+                "operationId": "owner_sales_export_retrieve",
+                "description": "Export owner sales CSV",
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/owner/sales/payment-distribution/": {
+            "get": {
+                "operationId": "owner_sales_payment_distribution_retrieve",
+                "description": "Get owner payment methods distribution",
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaymentMethodsDistribution"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/owner/sales/summary/": {
+            "get": {
+                "operationId": "owner_sales_summary_retrieve",
+                "description": "Get owner sales summary: total sales, revenue, average order, unique customers",
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SalesSummary"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/owner/settings/": {
+            "get": {
+                "operationId": "owner_settings_retrieve",
+                "description": "Owner settings overview for pharmacy tab",
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/owner/settings/consolidated/": {
+            "get": {
+                "operationId": "owner_settings_consolidated_retrieve",
+                "description": "Owner settings consolidated payload for all tabs",
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/owner/settings/pharmacies/": {
+            "get": {
+                "operationId": "owner_settings_pharmacies_retrieve",
+                "description": "List all pharmacies owned by current user",
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            },
+            "post": {
+                "operationId": "owner_settings_pharmacies_create",
+                "description": "Create a new pharmacy and assign current user as OWNER",
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/owner/settings/pharmacy/": {
+            "get": {
+                "operationId": "owner_settings_pharmacy_retrieve",
+                "description": "Get one pharmacy settings by tenantId",
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "owner_settings_pharmacy_partial_update",
+                "description": "Update pharmacy settings by tenantId",
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/owner/tenants/": {
+            "get": {
+                "operationId": "owner_tenants_retrieve",
+                "description": "List all owner tenants and lightweight stats for switcher dropdown/cards",
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/owner/tenants/switch/": {
+            "post": {
+                "operationId": "owner_tenants_switch_create",
+                "description": "Switch owner to selected tenant and return a fresh token scoped to that tenant",
+                "tags": [
+                    "owner"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/owner/users/": {
             "get": {
                 "operationId": "owner_users_retrieve",
@@ -2254,7 +3114,8 @@
                         "in": "path",
                         "name": "user_id",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "uuid"
                         },
                         "required": true
                     }
@@ -2288,7 +3149,8 @@
                         "in": "path",
                         "name": "user_id",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "uuid"
                         },
                         "required": true
                     }
@@ -2322,7 +3184,8 @@
                         "in": "path",
                         "name": "user_id",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "uuid"
                         },
                         "required": true
                     }
@@ -2550,7 +3413,8 @@
                         "in": "path",
                         "name": "invoice_id",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "uuid"
                         },
                         "required": true
                     }
@@ -2592,7 +3456,8 @@
                         "in": "path",
                         "name": "invoice_id",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "uuid"
                         },
                         "required": true
                     }
@@ -2654,7 +3519,8 @@
                         "in": "path",
                         "name": "invoice_id",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "uuid"
                         },
                         "required": true
                     }
@@ -2780,7 +3646,8 @@
                         "in": "path",
                         "name": "invoice_id",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "uuid"
                         },
                         "required": true
                     }
@@ -2841,7 +3708,8 @@
                         "in": "path",
                         "name": "invoice_id",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "uuid"
                         },
                         "required": true
                     }
@@ -3050,20 +3918,6 @@
                             }
                         },
                         "description": ""
-                    }
-                }
-            }
-        },
-        "/api/register-owner/": {
-            "post": {
-                "operationId": "register_owner_create",
-                "description": "Deprecated: Use RegisterTenantView instead.",
-                "tags": [
-                    "register-owner"
-                ],
-                "responses": {
-                    "200": {
-                        "description": "No response body"
                     }
                 }
             }
@@ -3354,7 +4208,8 @@
                         "in": "path",
                         "name": "sale_id",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "uuid"
                         },
                         "required": true
                     }
@@ -3389,7 +4244,8 @@
                         "in": "path",
                         "name": "sale_id",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "uuid"
                         },
                         "required": true
                     }

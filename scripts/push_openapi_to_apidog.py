@@ -45,6 +45,8 @@ APIDOG_API_URL = os.getenv('APIDOG_API_URL', 'https://api.apidog.com/v1/projects
 APIDOG_TOKEN = os.getenv('APIDOG_TOKEN', '')
 RETRY_COUNT = int(os.getenv('APIDOG_RETRY_COUNT', 3))
 RETRY_DELAY = int(os.getenv('APIDOG_RETRY_DELAY', 2))
+ENDPOINT_OVERWRITE_BEHAVIOR = os.getenv('APIDOG_ENDPOINT_OVERWRITE_BEHAVIOR', 'OVERWRITE_EXISTING')
+SCHEMA_OVERWRITE_BEHAVIOR = os.getenv('APIDOG_SCHEMA_OVERWRITE_BEHAVIOR', 'OVERWRITE_EXISTING')
 
 def create_session_with_retries():
     """Create a requests session with automatic retries on network errors."""
@@ -80,6 +82,21 @@ def get_headers():
     return headers
 
 
+def validate_token_or_exit():
+    """Apidog import endpoint expects Personal Access Token, not APS API key."""
+    if not APIDOG_TOKEN:
+        logger.error("APIDOG_TOKEN is required.")
+        raise SystemExit(1)
+
+    raw_token = APIDOG_TOKEN.replace('Bearer ', '')
+    if raw_token.startswith('APS-'):
+        logger.error(
+            "APIDOG_TOKEN looks like an API Key (APS-...). "
+            "Use a Personal Access Token from Apidog account settings."
+        )
+        raise SystemExit(1)
+
+
 def push_file(openapi_path, project_id):
     """Upload local openapi.json file to Apidog with retry logic.
     
@@ -107,8 +124,8 @@ def push_file(openapi_path, project_id):
                 "data": spec_content  # Send as string
             },
             "options": {
-                "endpointOverwriteBehavior": "MERGE",  # MERGE creates new + updates existing
-                "schemaOverwriteBehavior": "MERGE",
+                "endpointOverwriteBehavior": ENDPOINT_OVERWRITE_BEHAVIOR,
+                "schemaOverwriteBehavior": SCHEMA_OVERWRITE_BEHAVIOR,
                 "deleteUnmatchedResources": False,
                 "updateFolderOfChangedEndpoint": True,
                 "prependBasePath": False
@@ -134,9 +151,12 @@ def push_file(openapi_path, project_id):
                 result = response.json()
                 if 'data' in result and 'counters' in result['data']:
                     counters = result['data']['counters']
-                    logger.info(f"Import stats: {counters['endpointCreated']} endpoints created, "
-                               f"{counters['endpointUpdated']} updated, "
-                               f"{counters['schemaCreated']} schemas created")
+                    logger.info(
+                        "Import stats: %s endpoints created, %s updated, %s schemas created",
+                        counters.get('endpointCreated', 0),
+                        counters.get('endpointUpdated', 0),
+                        counters.get('schemaCreated', 0),
+                    )
                 logger.debug(f"Full response: {result}")
                 return result
             except (json.JSONDecodeError, ValueError):
@@ -183,8 +203,8 @@ def import_from_url(schema_url, project_id):
                 "url": schema_url
             },
             "options": {
-                "endpointOverwriteBehavior": "MERGE",  # MERGE creates new + updates existing
-                "schemaOverwriteBehavior": "MERGE",
+                "endpointOverwriteBehavior": ENDPOINT_OVERWRITE_BEHAVIOR,
+                "schemaOverwriteBehavior": SCHEMA_OVERWRITE_BEHAVIOR,
                 "deleteUnmatchedResources": False,
                 "updateFolderOfChangedEndpoint": False,
                 "prependBasePath": False
@@ -207,8 +227,12 @@ def import_from_url(schema_url, project_id):
                 result = response.json()
                 if 'data' in result and 'counters' in result['data']:
                     counters = result['data']['counters']
-                    logger.info(f"Import stats: {counters.get('endpointCreated', 0)} endpoints created, "
-                               f"{counters.get('endpointUpdated', 0)} updated")
+                    logger.info(
+                        "Import stats: %s endpoints created, %s updated, %s schemas created",
+                        counters.get('endpointCreated', 0),
+                        counters.get('endpointUpdated', 0),
+                        counters.get('schemaCreated', 0),
+                    )
                 logger.debug(f"Full response: {result}")
                 return result
             except (json.JSONDecodeError, ValueError):
@@ -257,6 +281,7 @@ if __name__ == '__main__':
     # Allow passing token on the CLI which overrides the environment variable
     if args.token:
         APIDOG_TOKEN = args.token
+    validate_token_or_exit()
 
     try:
         if args.file:
@@ -270,4 +295,3 @@ if __name__ == '__main__':
         if e.code != 0:
             logger.error('Script exited with error.')
         raise
-

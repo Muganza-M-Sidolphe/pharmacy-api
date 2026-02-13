@@ -9,7 +9,13 @@ from .storekeeper.expiry_alerts import ExpiryAlertsView, ExpiryAlertsSummaryView
 from .cashier.dashboard import CashierDashboardSummaryView, CashierStockAlertsView, CashierAvailableMedicinesView, CashierPendingRequestsView, CashierExpiryAlertsView
 from .cashier.sales import CashierCreateSaleView, CashierSalesListView, CashierSalesDetailView, StorekeeperApproveSaleView, StorekeeperRejectSaleView, StorekeeperPendingSalesView
 from .cashier.history import CashierHistorySummaryView, CashierSalesHistoryView, CashierSalesChartDataView, CashierCompletedSalesView, CashierPartialPaymentSalesView, CashierStockRequestsView
-from .owner.settings import PharmacySettingsView
+from .owner.settings import PharmacySettingsView, OwnerPharmaciesView, OwnerSettingsOverviewView, OwnerSettingsConsolidatedView
+from .owner.dashboard import OwnerDashboardView, OwnerDashboardSummaryView, OwnerDashboardSalesTrendView, OwnerDashboardPartialInvoicesView
+from .owner.invoices import OwnerInvoicesListView, OwnerInvoiceDetailView, OwnerInvoicesSummaryView, OwnerApprovePartialInvoiceView, OwnerRejectPartialInvoiceView
+from .owner.inventory import OwnerInventoryView, OwnerInventorySummaryView, OwnerInventoryMedicineDetailView
+from .owner.sales import OwnerSalesSummaryView, OwnerDailySalesTrendView, OwnerPaymentMethodsDistributionView, OwnerExportSalesView
+from .owner.reports import OwnerSalesReportsDashboardView, OwnerUserManagementReportView, OwnerUsersSummaryCardsView
+from .owner.tenant_switch import OwnerTenantsListView, OwnerSwitchTenantView
 
 # Import from legacy_views directly to avoid circular import
 from ..legacy_views import RegisterTenantView, RegisterOwnerView
@@ -51,7 +57,31 @@ __all__ = [
     'CashierCompletedSalesView',
     'CashierPartialPaymentSalesView',
     'CashierStockRequestsView',
+    'OwnerDashboardView',
+    'OwnerDashboardSummaryView',
+    'OwnerDashboardSalesTrendView',
+    'OwnerDashboardPartialInvoicesView',
+    'OwnerInvoicesListView',
+    'OwnerInvoiceDetailView',
+    'OwnerInvoicesSummaryView',
+    'OwnerApprovePartialInvoiceView',
+    'OwnerRejectPartialInvoiceView',
+    'OwnerInventoryView',
+    'OwnerInventorySummaryView',
+    'OwnerInventoryMedicineDetailView',
+    'OwnerSalesSummaryView',
+    'OwnerDailySalesTrendView',
+    'OwnerPaymentMethodsDistributionView',
+    'OwnerExportSalesView',
+    'OwnerSalesReportsDashboardView',
+    'OwnerUserManagementReportView',
+    'OwnerUsersSummaryCardsView',
+    'OwnerTenantsListView',
+    'OwnerSwitchTenantView',
     'PharmacySettingsView',
+    'OwnerPharmaciesView',
+    'OwnerSettingsOverviewView',
+    'OwnerSettingsConsolidatedView',
     'RegisterTenantView',
     'RegisterOwnerView'
 ]
