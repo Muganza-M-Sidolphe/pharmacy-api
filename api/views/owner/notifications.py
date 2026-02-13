@@ -4,6 +4,7 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 from django.core.paginator import Paginator
+from django.db.models import Count
 from ...models import Notification, Tenant, UserTenant, User
 from ...serializers import NotificationSerializer, NotificationModelSerializer, NotificationMarkSerializer
 from drf_spectacular.utils import extend_schema
@@ -113,3 +114,63 @@ class OwnerNotificationDetailView(APIView):
         notification = get_object_or_404(Notification, id=notification_id, tenant_id=tenant_id)
         notification.delete()
         return Response({"message": "Notification deleted"}, status=status.HTTP_200_OK)
+
+
+class OwnerNotificationsDashboardView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        description="Owner notifications consolidated payload (summary + breakdown + recent list)",
+        tags=["owner"],
+    )
+    def get(self, request):
+        tenant_id = request.query_params.get("tenantId")
+        if not tenant_id:
+            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id, role="OWNER").exists():
+            return Response({"detail": "Unauthorized tenant access"}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            limit = int(request.query_params.get("limit", 10))
+        except ValueError:
+            return Response({"detail": "limit must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if limit <= 0:
+            return Response({"detail": "limit must be greater than 0"}, status=status.HTTP_400_BAD_REQUEST)
+
+        qs = Notification.objects.filter(tenant_id=tenant_id).order_by("-created_at")
+
+        total_count = qs.count()
+        read_count = qs.filter(is_read=True).count()
+        unread_count = qs.filter(is_read=False).count()
+
+        recipient_breakdown = {}
+        for row in qs.values("recipient_id").annotate(count=Count("id")):
+            key = str(row["recipient_id"]) if row["recipient_id"] else "BROADCAST"
+            recipient_breakdown[key] = row["count"]
+
+        recent = [NotificationSerializer().to_representation(item) for item in qs[:limit]]
+
+        return Response(
+            {
+                "summary": {
+                    "total": total_count,
+                    "read": read_count,
+                    "unread": unread_count,
+                },
+                "readStatusDistribution": [
+                    {"status": "READ", "count": read_count},
+                    {"status": "UNREAD", "count": unread_count},
+                ],
+                "recipientBreakdown": [
+                    {"recipientId": key, "count": value}
+                    for key, value in recipient_breakdown.items()
+                ],
+                "recentNotifications": {
+                    "count": total_count,
+                    "results": recent,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )

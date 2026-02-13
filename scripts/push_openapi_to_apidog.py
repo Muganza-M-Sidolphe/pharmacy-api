@@ -17,11 +17,13 @@ Usage examples:
 
 Environment variables:
   APIDOG_API_URL: Base import endpoint (default: https://api.apidog.com/v1/projects/{projectId}/import-openapi)
-  APIDOG_TOKEN: Bearer token (Personal Access Token from Apidog, NOT API key)
+  APIDOG_TOKEN: Apidog token (supports both API Access Token and APS-style API Key)
   APIDOG_RETRY_COUNT: Number of retries on failure (default: 3)
   APIDOG_RETRY_DELAY: Seconds between retries (default: 2)
+  APIDOG_TARGET_BRANCH: Optional branch name to import into (e.g. main)
+  APIDOG_IMPORT_FOLDER_ID: Optional folder ID to import endpoints into
 
-Note: Get your Personal Access Token from Apidog account settings, not the API key!
+Note: This script supports both API Access Token and APS-style API Key tokens.
 """
 
 import os
@@ -45,6 +47,10 @@ APIDOG_API_URL = os.getenv('APIDOG_API_URL', 'https://api.apidog.com/v1/projects
 APIDOG_TOKEN = os.getenv('APIDOG_TOKEN', '')
 RETRY_COUNT = int(os.getenv('APIDOG_RETRY_COUNT', 3))
 RETRY_DELAY = int(os.getenv('APIDOG_RETRY_DELAY', 2))
+ENDPOINT_OVERWRITE_BEHAVIOR = os.getenv('APIDOG_ENDPOINT_OVERWRITE_BEHAVIOR', 'OVERWRITE_EXISTING')
+SCHEMA_OVERWRITE_BEHAVIOR = os.getenv('APIDOG_SCHEMA_OVERWRITE_BEHAVIOR', 'OVERWRITE_EXISTING')
+TARGET_BRANCH = os.getenv('APIDOG_TARGET_BRANCH', '').strip()
+IMPORT_FOLDER_ID = os.getenv('APIDOG_IMPORT_FOLDER_ID', '').strip()
 
 def create_session_with_retries():
     """Create a requests session with automatic retries on network errors."""
@@ -64,7 +70,10 @@ def create_session_with_retries():
 def get_headers():
     """Build request headers with authorization.
     
-    Apidog uses Bearer token authorization (Personal Access Token from account settings).
+    Apidog auth can vary by workspace token type.
+    We support:
+      - API Access Token (Bearer)
+      - APS-style API Key (x-apidog-api-key / x-api-key + Bearer fallback)
     """
     headers = {
         'Accept': 'application/json',
@@ -72,12 +81,52 @@ def get_headers():
         'X-Apidog-Api-Version': '2024-03-28',  # Required by Apidog API
     }
     if APIDOG_TOKEN:
-        # Apidog requires Bearer token format (Personal Access Token)
-        if APIDOG_TOKEN.startswith('Bearer '):
-            headers['Authorization'] = APIDOG_TOKEN
+        raw_token = APIDOG_TOKEN.replace('Bearer ', '')
+        if raw_token.startswith('APS-'):
+            # API Key mode (some Apidog setups issue APS- tokens).
+            # Keep Bearer fallback for compatibility with endpoints that still accept it.
+            headers['x-apidog-api-key'] = raw_token
+            headers['x-api-key'] = raw_token
+            headers['Authorization'] = f'Bearer {raw_token}'
         else:
-            headers['Authorization'] = f'Bearer {APIDOG_TOKEN}'
+            # API Access Token mode
+            if APIDOG_TOKEN.startswith('Bearer '):
+                headers['Authorization'] = APIDOG_TOKEN
+            else:
+                headers['Authorization'] = f'Bearer {APIDOG_TOKEN}'
     return headers
+
+
+def validate_token_or_exit():
+    """Validate token presence and log inferred token mode."""
+    if not APIDOG_TOKEN:
+        logger.error("APIDOG_TOKEN is required.")
+        raise SystemExit(1)
+
+    raw_token = APIDOG_TOKEN.replace('Bearer ', '')
+    if raw_token.startswith('APS-'):
+        logger.info("Detected APS-style API key token. Using API-key headers with Bearer fallback.")
+    else:
+        logger.info("Detected API Access Token / Bearer token mode.")
+
+
+def build_import_options(update_folder_of_changed_endpoint):
+    """Build Apidog import options with optional branch/folder targeting."""
+    options = {
+        "endpointOverwriteBehavior": ENDPOINT_OVERWRITE_BEHAVIOR,
+        "schemaOverwriteBehavior": SCHEMA_OVERWRITE_BEHAVIOR,
+        "deleteUnmatchedResources": False,
+        "updateFolderOfChangedEndpoint": update_folder_of_changed_endpoint,
+        "prependBasePath": False,
+    }
+
+    if TARGET_BRANCH:
+        options["targetBranchName"] = TARGET_BRANCH
+
+    if IMPORT_FOLDER_ID:
+        options["endpointFolderId"] = IMPORT_FOLDER_ID
+
+    return options
 
 
 def push_file(openapi_path, project_id):
@@ -100,19 +149,20 @@ def push_file(openapi_path, project_id):
 
         session = create_session_with_retries()
         
+        options = build_import_options(update_folder_of_changed_endpoint=True)
+        logger.info(
+            "Import target: branch=%s, folderId=%s",
+            TARGET_BRANCH or "<default>",
+            IMPORT_FOLDER_ID or "<default>",
+        )
+
         # Build request body according to Apidog API format
         # IMPORTANT: spec must be sent as a STRING, not an object
         payload = {
             "input": {
                 "data": spec_content  # Send as string
             },
-            "options": {
-                "endpointOverwriteBehavior": "MERGE",  # MERGE creates new + updates existing
-                "schemaOverwriteBehavior": "MERGE",
-                "deleteUnmatchedResources": False,
-                "updateFolderOfChangedEndpoint": True,
-                "prependBasePath": False
-            }
+            "options": options,
         }
 
         response = session.post(
@@ -134,9 +184,12 @@ def push_file(openapi_path, project_id):
                 result = response.json()
                 if 'data' in result and 'counters' in result['data']:
                     counters = result['data']['counters']
-                    logger.info(f"Import stats: {counters['endpointCreated']} endpoints created, "
-                               f"{counters['endpointUpdated']} updated, "
-                               f"{counters['schemaCreated']} schemas created")
+                    logger.info(
+                        "Import stats: %s endpoints created, %s updated, %s schemas created",
+                        counters.get('endpointCreated', 0),
+                        counters.get('endpointUpdated', 0),
+                        counters.get('schemaCreated', 0),
+                    )
                 logger.debug(f"Full response: {result}")
                 return result
             except (json.JSONDecodeError, ValueError):
@@ -177,18 +230,19 @@ def import_from_url(schema_url, project_id):
     try:
         session = create_session_with_retries()
         
+        options = build_import_options(update_folder_of_changed_endpoint=False)
+        logger.info(
+            "Import target: branch=%s, folderId=%s",
+            TARGET_BRANCH or "<default>",
+            IMPORT_FOLDER_ID or "<default>",
+        )
+
         # Build request body according to Apidog API format
         payload = {
             "input": {
                 "url": schema_url
             },
-            "options": {
-                "endpointOverwriteBehavior": "MERGE",  # MERGE creates new + updates existing
-                "schemaOverwriteBehavior": "MERGE",
-                "deleteUnmatchedResources": False,
-                "updateFolderOfChangedEndpoint": False,
-                "prependBasePath": False
-            }
+            "options": options,
         }
 
         response = session.post(
@@ -207,8 +261,12 @@ def import_from_url(schema_url, project_id):
                 result = response.json()
                 if 'data' in result and 'counters' in result['data']:
                     counters = result['data']['counters']
-                    logger.info(f"Import stats: {counters.get('endpointCreated', 0)} endpoints created, "
-                               f"{counters.get('endpointUpdated', 0)} updated")
+                    logger.info(
+                        "Import stats: %s endpoints created, %s updated, %s schemas created",
+                        counters.get('endpointCreated', 0),
+                        counters.get('endpointUpdated', 0),
+                        counters.get('schemaCreated', 0),
+                    )
                 logger.debug(f"Full response: {result}")
                 return result
             except (json.JSONDecodeError, ValueError):
@@ -257,6 +315,7 @@ if __name__ == '__main__':
     # Allow passing token on the CLI which overrides the environment variable
     if args.token:
         APIDOG_TOKEN = args.token
+    validate_token_or_exit()
 
     try:
         if args.file:
@@ -270,4 +329,3 @@ if __name__ == '__main__':
         if e.code != 0:
             logger.error('Script exited with error.')
         raise
-
