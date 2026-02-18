@@ -36,6 +36,18 @@ class LoginView(APIView):
             user=user
         ).select_related("tenant")
 
+        # Super admin can login without tenant assignment
+        if user.is_super_admin and not user_tenants.exists():
+            token = generate_token(user=user, role="SUPER_ADMIN")
+            return Response({
+                "status": "OK",
+                "mode": "SUPER_ADMIN",
+                "data": {
+                    "token": token,
+                    "role": "SUPER_ADMIN"
+                }
+            })
+
         if not user_tenants.exists():
             return Response(
                 {"message": "No pharmacy assigned"},

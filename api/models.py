@@ -228,3 +228,119 @@ class Expense(models.Model):
 
     def __str__(self):
         return f"Expense {self.id} - {self.amount} ({self.tenant.name})"
+
+
+class TenantSubscription(models.Model):
+    STATUS_CHOICES = (
+        ("TRIAL", "Trial"),
+        ("ACTIVE", "Active"),
+        ("EXPIRED", "Expired"),
+        ("CANCELLED", "Cancelled"),
+    )
+
+    BILLING_CYCLE_CHOICES = (
+        ("monthly", "Monthly"),
+        ("annual", "Annual"),
+    )
+
+    tenant = models.OneToOneField(Tenant, on_delete=models.CASCADE, related_name="subscription")
+    plan_id = models.CharField(max_length=50, default="starter")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="TRIAL")
+    billing_cycle = models.CharField(max_length=20, choices=BILLING_CYCLE_CHOICES, default="monthly")
+    trial_end_date = models.DateField(null=True, blank=True)
+    subscription_start_date = models.DateField(null=True, blank=True)
+    subscription_end_date = models.DateField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Subscription({self.tenant.name}, {self.plan_id}, {self.status})"
+
+
+class SubscriptionEvent(models.Model):
+    ACTION_CHOICES = (
+        ("UPGRADE", "Upgrade"),
+        ("DOWNGRADE", "Downgrade"),
+        ("CANCEL", "Cancel"),
+        ("RENEW_TRIAL", "Renew Trial"),
+        ("PAYMENT", "Payment"),
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="subscription_events")
+    action = models.CharField(max_length=30, choices=ACTION_CHOICES)
+    from_plan_id = models.CharField(max_length=50, null=True, blank=True)
+    to_plan_id = models.CharField(max_length=50, null=True, blank=True)
+    payment_method = models.CharField(max_length=50, null=True, blank=True)
+    promo_code = models.CharField(max_length=100, null=True, blank=True)
+    amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.action} ({self.tenant.name})"
+
+
+class SubscriptionPlan(models.Model):
+    BUSINESS_TYPE_CHOICES = (
+        ("RETAIL", "Retail"),
+        ("WHOLESALE", "Wholesale"),
+        ("BOTH", "Both"),
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    code = models.CharField(max_length=50, unique=True)
+    name = models.CharField(max_length=120)
+    description = models.TextField(blank=True, null=True)
+    price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    business_type = models.CharField(max_length=20, choices=BUSINESS_TYPE_CHOICES, default="BOTH")
+    max_users = models.IntegerField(default=1)
+    max_branches = models.IntegerField(default=1)
+    features = models.JSONField(default=dict, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.name} ({self.code})"
+
+
+class AuditLog(models.Model):
+    STATUS_CHOICES = (
+        ("SUCCESS", "Success"),
+        ("ERROR", "Error"),
+        ("FAILED", "Failed"),
+    )
+    ACTION_CHOICES = (
+        ("VIEW", "View"),
+        ("CREATE", "Create"),
+        ("UPDATE", "Update"),
+        ("DELETE", "Delete"),
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    tenant = models.ForeignKey(Tenant, on_delete=models.SET_NULL, null=True, blank=True)
+    action = models.CharField(max_length=20, choices=ACTION_CHOICES)
+    entity = models.CharField(max_length=100)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="SUCCESS")
+    details = models.JSONField(default=dict, blank=True)
+    ip_address = models.CharField(max_length=64, null=True, blank=True)
+    status_code = models.IntegerField(null=True, blank=True)
+    error_message = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.action} {self.entity} ({self.status})"
+
+
+class SystemSetting(models.Model):
+    key = models.CharField(max_length=100, unique=True)
+    data = models.JSONField(default=dict, blank=True)
+    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.key

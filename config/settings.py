@@ -11,8 +11,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 from pathlib import Path
-
-from pathlib import Path
+from datetime import timedelta
 import os
 from dotenv import load_dotenv
 
@@ -47,7 +46,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
     'drf_spectacular',
-    'api',
+    'api.apps.ApiConfig',
     
 ]
 
@@ -140,6 +139,11 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',
     ),
     'DEFAULT_SCHEMA_CLASS': 'api.schema.SafeAutoSchema',
+}
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=24),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
 }
 
 #Spectacular settings
