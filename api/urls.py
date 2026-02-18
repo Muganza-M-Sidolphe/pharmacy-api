@@ -1,4 +1,5 @@
 from django.urls import path
+from rest_framework_simplejwt.views import TokenRefreshView
 from .views import RegisterTenantView,RegisterOwnerView, LoginView, LogoutView,SelectTenantView,CreateUserView, OwnerUserListView,OwnerUpdateUserView,OwnerUserStatusView,OwnerResetUserPasswordView,UsersSummaryView,SearchUsersView,RolesListView,ChangePasswordView, OwnerUsersDashboardView, OwnerNotificationsView, OwnerNotificationDetailView, OwnerNotificationsDashboardView, OwnerDashboardView, OwnerDashboardSummaryView, OwnerDashboardSalesTrendView, OwnerDashboardPartialInvoicesView, OwnerTenantsListView, OwnerSwitchTenantView, PharmacySettingsView, OwnerPharmaciesView, OwnerSettingsOverviewView, OwnerSettingsConsolidatedView, OwnerInvoicesListView, OwnerInvoiceDetailView, OwnerInvoicesSummaryView, OwnerInvoicesDashboardView, OwnerApprovePartialInvoiceView, OwnerRejectPartialInvoiceView, OwnerInventoryView, OwnerInventorySummaryView, OwnerInventoryMedicineDetailView, OwnerSalesDashboardView, OwnerSalesSummaryView, OwnerDailySalesTrendView, OwnerPaymentMethodsDistributionView, OwnerExportSalesView, OwnerSalesReportsDashboardView, OwnerUserManagementReportView, OwnerUsersSummaryCardsView
 from .views.storekeeper.inventory import InventoryListCreateView
 from .views.storekeeper.expiry_alerts import ExpiryAlertsView, ExpiryAlertsSummaryView, ExpiryAlertsCriticalView, ExpiredBatchesView
@@ -18,10 +19,68 @@ from .views.pharmacist.partial_payments import PharmacistPartialPaymentsListView
 from .views.pharmacist.history import PharmacistApprovalHistoryListView, PharmacistHistorySummaryView, PharmacistHistoryExportView, PharmacistHistorySearchView
 from .views.pharmacist.dashboard import PharmacistDashboardSummaryView, PharmacistPendingInvoicesView, PharmacistRecentApprovalsView
 from .views.owner.partial_payments import OwnerPartialPaymentsListView, OwnerPartialPaymentSummaryView, OwnerApprovePartialPaymentView, OwnerRejectPartialPaymentView
+from .views.pricing import PricingPlansView, PricingCompareView, PricingFAQView, PricingCalculateUpgradeView, PricingRecommendationView, SubscriptionPlansView, SubscriptionPlanDetailView, SubscriptionHistoryView, SubscriptionUpgradeView, SubscriptionDowngradeView, SubscriptionCancelView, SubscriptionTrialRenewView, SubscriptionTrialStatusView, SubscriptionLimitsView, SubscriptionFeatureView, SubscriptionUsageView, SubscriptionPaymentView, SubscriptionInvoicesView, SubscriptionInvoiceDownloadView
+from .views.retail import RetailMedicinesView, RetailSalesView, RetailInsuranceSalesView, RetailExpensesView, RetailStockView, RetailExpiringMedicinesView, RetailLowStockView, RetailDashboardView, RetailReportsView, RetailExpenseDeleteView
+from .views.super_admin import SuperAdminMetricsView, SuperAdminTenantsView, SuperAdminTenantDetailView, SuperAdminTenantStatusView, SuperAdminSubscriptionsView, SuperAdminSubscriptionDetailView, SuperAdminSubscriptionPlanView, SuperAdminExtendTrialView, SuperAdminExpireSubscriptionView, SuperAdminCancelSubscriptionView, SuperAdminUsersView, SuperAdminPlansView, SuperAdminPlanDetailView, SuperAdminAuditLogsView, SuperAdminSettingsView
 
 urlpatterns = [
     path("register-tenant/", RegisterTenantView.as_view()),
     path("login/", LoginView.as_view(),name="login"),
+    path("token/refresh/", TokenRefreshView.as_view(), name="token-refresh"),
+    path("pricing/plans/", PricingPlansView.as_view(), name="pricing-plans"),
+    path("pricing/compare/", PricingCompareView.as_view(), name="pricing-compare"),
+    path("pricing/calculate-upgrade/", PricingCalculateUpgradeView.as_view(), name="pricing-calculate-upgrade"),
+    path("pricing/recommend/", PricingRecommendationView.as_view(), name="pricing-recommend"),
+    path("pricing/faq/", PricingFAQView.as_view(), name="pricing-faq"),
+    path("subscriptions/plans/", SubscriptionPlansView.as_view(), name="subscriptions-plans"),
+    path("subscriptions/plans/<str:plan_id>/", SubscriptionPlanDetailView.as_view(), name="subscriptions-plan-detail"),
+    path("subscriptions/history/", SubscriptionHistoryView.as_view(), name="subscriptions-history"),
+    path("subscriptions/upgrade/", SubscriptionUpgradeView.as_view(), name="subscriptions-upgrade"),
+    path("subscriptions/downgrade/", SubscriptionDowngradeView.as_view(), name="subscriptions-downgrade"),
+    path("subscriptions/cancel/", SubscriptionCancelView.as_view(), name="subscriptions-cancel"),
+    path("subscriptions/trial/renew/", SubscriptionTrialRenewView.as_view(), name="subscriptions-trial-renew"),
+    path("subscriptions/trial/status/", SubscriptionTrialStatusView.as_view(), name="subscriptions-trial-status"),
+    path("subscriptions/limits/", SubscriptionLimitsView.as_view(), name="subscriptions-limits"),
+    path("subscriptions/features/<str:feature_name>/", SubscriptionFeatureView.as_view(), name="subscriptions-feature"),
+    path("subscriptions/usage/", SubscriptionUsageView.as_view(), name="subscriptions-usage"),
+    path("subscriptions/payment/", SubscriptionPaymentView.as_view(), name="subscriptions-payment"),
+    path("subscriptions/invoices/", SubscriptionInvoicesView.as_view(), name="subscriptions-invoices"),
+    path("subscriptions/invoices/<uuid:invoice_id>/download/", SubscriptionInvoiceDownloadView.as_view(), name="subscriptions-invoice-download"),
+    path("retails/medicines", RetailMedicinesView.as_view(), name="retails-medicines-no-slash"),
+    path("retails/medicines/", RetailMedicinesView.as_view(), name="retails-medicines"),
+    path("retails/sales", RetailSalesView.as_view(), name="retails-sales-no-slash"),
+    path("retails/sales/", RetailSalesView.as_view(), name="retails-sales"),
+    path("retails/insurance-sales", RetailInsuranceSalesView.as_view(), name="retails-insurance-sales-no-slash"),
+    path("retails/insurance-sales/", RetailInsuranceSalesView.as_view(), name="retails-insurance-sales"),
+    path("retails/expenses", RetailExpensesView.as_view(), name="retails-expenses-no-slash"),
+    path("retails/expenses/", RetailExpensesView.as_view(), name="retails-expenses"),
+    path("retails/expenses/<uuid:expense_id>", RetailExpenseDeleteView.as_view(), name="retails-expense-delete-no-slash"),
+    path("retails/expenses/<uuid:expense_id>/", RetailExpenseDeleteView.as_view(), name="retails-expense-delete"),
+    path("retails/stock", RetailStockView.as_view(), name="retails-stock-no-slash"),
+    path("retails/stock/", RetailStockView.as_view(), name="retails-stock"),
+    path("retails/expiring-medicines", RetailExpiringMedicinesView.as_view(), name="retails-expiring-medicines-no-slash"),
+    path("retails/expiring-medicines/", RetailExpiringMedicinesView.as_view(), name="retails-expiring-medicines"),
+    path("retails/low-stock", RetailLowStockView.as_view(), name="retails-low-stock-no-slash"),
+    path("retails/low-stock/", RetailLowStockView.as_view(), name="retails-low-stock"),
+    path("retails/dashboard", RetailDashboardView.as_view(), name="retails-dashboard-no-slash"),
+    path("retails/dashboard/", RetailDashboardView.as_view(), name="retails-dashboard"),
+    path("retails/reports", RetailReportsView.as_view(), name="retails-reports-no-slash"),
+    path("retails/reports/", RetailReportsView.as_view(), name="retails-reports"),
+    path("super-admin/metrics/", SuperAdminMetricsView.as_view(), name="super-admin-metrics"),
+    path("super-admin/tenants/", SuperAdminTenantsView.as_view(), name="super-admin-tenants"),
+    path("super-admin/tenants/<uuid:tenant_id>/", SuperAdminTenantDetailView.as_view(), name="super-admin-tenant-detail"),
+    path("super-admin/tenants/<uuid:tenant_id>/status/", SuperAdminTenantStatusView.as_view(), name="super-admin-tenant-status"),
+    path("super-admin/subscriptions/", SuperAdminSubscriptionsView.as_view(), name="super-admin-subscriptions"),
+    path("super-admin/subscriptions/<int:subscription_id>/", SuperAdminSubscriptionDetailView.as_view(), name="super-admin-subscription-detail"),
+    path("super-admin/subscriptions/<int:subscription_id>/plan/", SuperAdminSubscriptionPlanView.as_view(), name="super-admin-subscription-plan"),
+    path("subscriptions/<int:subscription_id>/extend-trial/", SuperAdminExtendTrialView.as_view(), name="subscription-extend-trial"),
+    path("super-admin/subscriptions/<int:subscription_id>/expire/", SuperAdminExpireSubscriptionView.as_view(), name="super-admin-subscription-expire"),
+    path("super-admin/subscriptions/<int:subscription_id>/cancel/", SuperAdminCancelSubscriptionView.as_view(), name="super-admin-subscription-cancel"),
+    path("super-admin/users/", SuperAdminUsersView.as_view(), name="super-admin-users"),
+    path("super-admin/plans/", SuperAdminPlansView.as_view(), name="super-admin-plans"),
+    path("super-admin/plans/<uuid:plan_id>/", SuperAdminPlanDetailView.as_view(), name="super-admin-plan-detail"),
+    path("super-admin/audit-logs/", SuperAdminAuditLogsView.as_view(), name="super-admin-audit-logs"),
+    path("super-admin/settings/", SuperAdminSettingsView.as_view(), name="super-admin-settings"),
     path("change-password/", ChangePasswordView.as_view(),name="change-password"),
     path("logout/", LogoutView.as_view()),
     path("select-tenant/", SelectTenantView.as_view(),name="select-tenant"),
