@@ -15,6 +15,16 @@ from ...models import Notification, Sale, UserTenant
 class OwnerInvoicesBaseView(APIView):
     permission_classes = [IsAuthenticated]
 
+    def _sale_item_names(self, sale):
+        names = []
+        seen = set()
+        for item in sale.items.all():
+            name = item.medicine.brand_name if item.medicine_id and item.medicine else None
+            if name and name not in seen:
+                seen.add(name)
+                names.append(name)
+        return names
+
     def _get_tenant_id(self, request):
         tenant_id = request.query_params.get("tenantId")
         if not tenant_id:
@@ -154,7 +164,12 @@ class OwnerInvoicesListView(OwnerInvoicesBaseView):
         if page_size_error:
             return page_size_error
 
-        invoices = self._owner_visible_invoices(tenant_id).order_by("-created_at")
+        invoices = (
+            self._owner_visible_invoices(tenant_id)
+            .select_related("cashier")
+            .prefetch_related("items__medicine")
+            .order_by("-created_at")
+        )
         invoices, filter_error = self._apply_common_filters(request, invoices)
         if filter_error:
             return filter_error
@@ -165,6 +180,7 @@ class OwnerInvoicesListView(OwnerInvoicesBaseView):
 
         results = []
         for sale in invoices[start:end]:
+            item_names = self._sale_item_names(sale)
             results.append(
                 {
                     "invoiceId": str(sale.id),
@@ -178,6 +194,9 @@ class OwnerInvoicesListView(OwnerInvoicesBaseView):
                     "paymentOption": sale.payment_option,
                     "status": sale.status,
                     "itemsCount": sale.items.count(),
+                    "items": item_names,
+                    "cashierId": str(sale.cashier_id) if sale.cashier_id else None,
+                    "cashierName": sale.cashier.name if sale.cashier_id and sale.cashier else "N/A",
                     "createdAt": sale.created_at,
                     "approvedAt": sale.approved_at,
                 }
@@ -209,7 +228,7 @@ class OwnerInvoiceDetailView(OwnerInvoicesBaseView):
             return access_error
 
         try:
-            sale = self._owner_visible_invoices(tenant_id).prefetch_related("items__medicine", "items__batch").get(
+            sale = self._owner_visible_invoices(tenant_id).select_related("cashier").prefetch_related("items__medicine", "items__batch").get(
                 id=invoice_id,
             )
         except Sale.DoesNotExist:
@@ -250,6 +269,8 @@ class OwnerInvoiceDetailView(OwnerInvoicesBaseView):
                 "totalAmount": str(sale.total_amount),
                 "createdAt": sale.created_at,
                 "updatedAt": sale.updated_at,
+                "cashierId": str(sale.cashier_id) if sale.cashier_id else None,
+                "cashierName": sale.cashier.name if sale.cashier_id and sale.cashier else "N/A",
                 "approvedAt": sale.approved_at,
                 "approvedBy": str(sale.approved_by_id) if sale.approved_by_id else None,
                 "items": items,
@@ -318,7 +339,12 @@ class OwnerInvoicesDashboardView(OwnerInvoicesBaseView):
         if access_error:
             return access_error
 
-        invoices = self._owner_visible_invoices(tenant_id).order_by("-created_at")
+        invoices = (
+            self._owner_visible_invoices(tenant_id)
+            .select_related("cashier")
+            .prefetch_related("items__medicine")
+            .order_by("-created_at")
+        )
         invoices, filter_error = self._apply_common_filters(request, invoices)
         if filter_error:
             return filter_error
@@ -354,6 +380,7 @@ class OwnerInvoicesDashboardView(OwnerInvoicesBaseView):
 
         recent_rows = []
         for invoice in invoices_list[:10]:
+            item_names = self._sale_item_names(invoice)
             recent_rows.append(
                 {
                     "invoiceId": str(invoice.id),
@@ -365,6 +392,9 @@ class OwnerInvoicesDashboardView(OwnerInvoicesBaseView):
                     "totalAmount": str(invoice.total_amount),
                     "paidAmount": str(invoice.paid_amount),
                     "dueAmount": str(invoice.due_amount),
+                    "items": item_names,
+                    "cashierId": str(invoice.cashier_id) if invoice.cashier_id else None,
+                    "cashierName": invoice.cashier.name if invoice.cashier_id and invoice.cashier else "N/A",
                     "createdAt": invoice.created_at,
                 }
             )

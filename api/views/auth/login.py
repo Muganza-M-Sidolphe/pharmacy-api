@@ -2,8 +2,35 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.contrib.auth import authenticate
-from ...models import UserTenant
+from ...models import UserTenant, TenantSubscription, SubscriptionPlan
 from ...utils.jwt import generate_token
+
+
+def _tenant_business_type(tenant):
+    subscription = TenantSubscription.objects.filter(tenant=tenant).first()
+    if not subscription:
+        return None
+    plan = (
+        SubscriptionPlan.objects.filter(code=subscription.plan_id).first()
+        or SubscriptionPlan.objects.filter(id=subscription.plan_id).first()
+    )
+    if not plan:
+        return None
+    return plan.business_type
+
+
+def _tenant_pharmacy_type(tenant, business_type=None):
+    if business_type == "WHOLESALE":
+        return "wholesale"
+    if business_type == "RETAIL":
+        return "retail"
+
+    tenant_roles = UserTenant.objects.filter(tenant=tenant).values_list("role", flat=True)
+    if "OWNER" in tenant_roles:
+        return "wholesale"
+    if "PHARMACIST" in tenant_roles:
+        return "retail"
+    return None
 
 
 class LoginView(APIView):
@@ -57,6 +84,8 @@ class LoginView(APIView):
         # Single tenant → auto login
         if user_tenants.count() == 1:
             ut = user_tenants.first()
+            business_type = _tenant_business_type(ut.tenant)
+            pharmacy_type = _tenant_pharmacy_type(ut.tenant, business_type=business_type)
             token = generate_token(
                 user=user,
                 tenant=ut.tenant,
@@ -70,7 +99,9 @@ class LoginView(APIView):
                     "token": token,
                     "tenant": {
                         "id": str(ut.tenant.id),
-                        "name": ut.tenant.name
+                        "name": ut.tenant.name,
+                        "businessType": business_type,
+                        "pharmacyType": pharmacy_type
                     },
                     "role": ut.role
                 }
@@ -79,15 +110,19 @@ class LoginView(APIView):
         # Multiple tenants → choose
         temp_token = generate_token(user=user)  # no tenant
 
+        tenants_payload = []
+        for ut in user_tenants:
+            business_type = _tenant_business_type(ut.tenant)
+            tenants_payload.append({
+                "id": str(ut.tenant.id),
+                "name": ut.tenant.name,
+                "role": ut.role,
+                "businessType": business_type,
+                "pharmacyType": _tenant_pharmacy_type(ut.tenant, business_type=business_type),
+            })
+
         return Response({
             "status": "CHOOSE_TENANT",
-            "tenants": [
-                {
-                    "id": str(ut.tenant.id),
-                    "name": ut.tenant.name,
-                    "role": ut.role
-                }
-                for ut in user_tenants
-            ],
+            "tenants": tenants_payload,
             "tempToken": temp_token
         })
