@@ -354,6 +354,7 @@ class OwnerExportSalesView(OwnerSalesBaseView):
         response = HttpResponse(content_type="text/csv")
         filename = f"owner_sales_{tenant_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}.csv"
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        response["Access-Control-Expose-Headers"] = "Content-Disposition"
 
         writer = csv.writer(response)
         writer.writerow(

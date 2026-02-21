@@ -13,13 +13,13 @@ from .views.accountant.expenses import AccountantExpensesListCreateView, Account
 from .views.accountant.reports import AccountantFinancialReportView, AccountantInventoryReportView, AccountantSalesReportView, AccountantExportReportView
 from .views.accountant.history import AccountantDashboardSummaryView, AccountantRecentNotificationsView, AccountantApprovedSalesListView, AccountantMarkNotificationAsReadView, AccountantMarkAllNotificationsAsReadView
 from .views.accountant.analytics import AccountantAnalyticsDashboardView, AccountantAnalyticsKPIView, AccountantAnalyticsTrendsView, AccountantAnalyticsForecastsView, AccountantAnalyticsInsightsView
-from .views.accountant.dashboard import AccountantDashboardPaymentsView, AccountantPendingPartialPaymentsView, AccountantOverduePaymentsView, AccountantTotalPaidAmountView, AccountantSelectedForInvoiceView, AccountantPartialPaymentRequestsView, AccountantQuickStatsView
+from .views.accountant.dashboard import AccountantDashboardPaymentsView, AccountantPendingPartialPaymentsView, AccountantOverduePaymentsView, AccountantTotalPaidAmountView, AccountantSelectedForInvoiceView, AccountantPartialPaymentRequestsView, AccountantQuickStatsView, PartialInvoiceReminderConfigView, PartialInvoiceReminderSendView, PartialInvoiceReminderHistoryView
 from .views.pharmacist.invoices import PharmacistInvoicesListView, PharmacistInvoiceDetailView, PharmacistInvoicesSummaryView, PharmacistApproveInvoiceView, PharmacistPaymentApprovalsListView, PharmacistApprovePaymentView, PharmacistInvoiceQuickStatsView
 from .views.pharmacist.partial_payments import PharmacistPartialPaymentsListView, PharmacistPartialPaymentSummaryView, PharmacistApprovePartialPaymentView, PharmacistRejectPartialPaymentView
 from .views.pharmacist.history import PharmacistApprovalHistoryListView, PharmacistHistorySummaryView, PharmacistHistoryExportView, PharmacistHistorySearchView
 from .views.pharmacist.dashboard import PharmacistDashboardSummaryView, PharmacistPendingInvoicesView, PharmacistRecentApprovalsView
 from .views.owner.partial_payments import OwnerPartialPaymentsListView, OwnerPartialPaymentSummaryView, OwnerApprovePartialPaymentView, OwnerRejectPartialPaymentView
-from .views.pricing import PricingPlansView, PricingCompareView, PricingFAQView, PricingCalculateUpgradeView, PricingRecommendationView, SubscriptionPlansView, SubscriptionPlanDetailView, SubscriptionHistoryView, SubscriptionUpgradeView, SubscriptionDowngradeView, SubscriptionCancelView, SubscriptionTrialRenewView, SubscriptionTrialStatusView, SubscriptionLimitsView, SubscriptionFeatureView, SubscriptionUsageView, SubscriptionPaymentView, SubscriptionInvoicesView, SubscriptionInvoiceDownloadView
+from .views.pricing import PricingPlansView, PricingCompareView, PricingFAQView, PricingCalculateUpgradeView, PricingRecommendationView, SubscriptionPlansView, SubscriptionPlanDetailView, SubscriptionHistoryView, SubscriptionUpgradeView, SubscriptionDowngradeView, SubscriptionCancelView, SubscriptionTrialRenewView, SubscriptionTrialStatusView, SubscriptionLimitsView, SubscriptionFeatureView, SubscriptionUsageView, SubscriptionPaymentView, SubscriptionPaymentStatusView, SubscriptionMtnWebhookView, SubscriptionInvoicesView, SubscriptionInvoiceDownloadView
 from .views.retail import RetailMedicinesView, RetailSalesView, RetailInsuranceSalesView, RetailExpensesView, RetailStockView, RetailExpiringMedicinesView, RetailLowStockView, RetailDashboardView, RetailReportsView, RetailExpenseDeleteView
 from .views.super_admin import SuperAdminMetricsView, SuperAdminTenantsView, SuperAdminTenantDetailView, SuperAdminTenantStatusView, SuperAdminSubscriptionsView, SuperAdminSubscriptionDetailView, SuperAdminSubscriptionPlanView, SuperAdminExtendTrialView, SuperAdminExpireSubscriptionView, SuperAdminCancelSubscriptionView, SuperAdminUsersView, SuperAdminPlansView, SuperAdminPlanDetailView, SuperAdminAuditLogsView, SuperAdminSettingsView
 
@@ -44,6 +44,8 @@ urlpatterns = [
     path("subscriptions/features/<str:feature_name>/", SubscriptionFeatureView.as_view(), name="subscriptions-feature"),
     path("subscriptions/usage/", SubscriptionUsageView.as_view(), name="subscriptions-usage"),
     path("subscriptions/payment/", SubscriptionPaymentView.as_view(), name="subscriptions-payment"),
+    path("subscriptions/payment-status/<uuid:transaction_id>/", SubscriptionPaymentStatusView.as_view(), name="subscriptions-payment-status"),
+    path("subscriptions/payment/mtn/webhook/", SubscriptionMtnWebhookView.as_view(), name="subscriptions-payment-mtn-webhook"),
     path("subscriptions/invoices/", SubscriptionInvoicesView.as_view(), name="subscriptions-invoices"),
     path("subscriptions/invoices/<uuid:invoice_id>/download/", SubscriptionInvoiceDownloadView.as_view(), name="subscriptions-invoice-download"),
     path("retails/medicines", RetailMedicinesView.as_view(), name="retails-medicines-no-slash"),
@@ -179,6 +181,12 @@ urlpatterns = [
     path("accountant/selected-for-invoice/", AccountantSelectedForInvoiceView.as_view(), name="accountant-selected-for-invoice"),
     path("accountant/payment-requests/", AccountantPartialPaymentRequestsView.as_view(), name="accountant-payment-requests"),
     path("accountant/quick-stats/", AccountantQuickStatsView.as_view(), name="accountant-quick-stats"),
+    path("accountant/invoices/<uuid:sale_id>/reminders/configure/", PartialInvoiceReminderConfigView.as_view(), name="accountant-invoice-reminder-configure"),
+    path("accountant/invoices/<uuid:sale_id>/reminders/send/", PartialInvoiceReminderSendView.as_view(), name="accountant-invoice-reminder-send"),
+    path("accountant/invoices/<uuid:sale_id>/reminders/history/", PartialInvoiceReminderHistoryView.as_view(), name="accountant-invoice-reminder-history"),
+    path("owner/invoices/<uuid:sale_id>/reminders/configure/", PartialInvoiceReminderConfigView.as_view(), name="owner-invoice-reminder-configure"),
+    path("owner/invoices/<uuid:sale_id>/reminders/send/", PartialInvoiceReminderSendView.as_view(), name="owner-invoice-reminder-send"),
+    path("owner/invoices/<uuid:sale_id>/reminders/history/", PartialInvoiceReminderHistoryView.as_view(), name="owner-invoice-reminder-history"),
     path("pharmacist/dashboard/", PharmacistDashboardSummaryView.as_view(), name="pharmacist-dashboard"),
     path("pharmacist/pending-invoices/", PharmacistPendingInvoicesView.as_view(), name="pharmacist-pending-invoices"),
     path("pharmacist/recent-approvals/", PharmacistRecentApprovalsView.as_view(), name="pharmacist-recent-approvals"),

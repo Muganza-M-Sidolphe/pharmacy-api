@@ -7,6 +7,14 @@ from ...utils.jwt import generate_token
 
 
 def _tenant_business_type(tenant):
+    # Prefer tenant role mapping because plan defaults can be generic/mismatched.
+    tenant_roles = UserTenant.objects.filter(tenant=tenant).values_list("role", flat=True)
+    if "OWNER" in tenant_roles:
+        return "WHOLESALE"
+    if "PHARMACIST" in tenant_roles:
+        return "RETAIL"
+
+    # Fallback to subscription plan business type if no role signal is available.
     subscription = TenantSubscription.objects.filter(tenant=tenant).first()
     if not subscription:
         return None

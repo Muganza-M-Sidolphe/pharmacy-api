@@ -2,7 +2,9 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from .models import (
     User, Tenant, UserTenant, Notification, Medicine, 
-    StockBatch, Sale, SaleItem, ExpenseCategory, Expense
+    StockBatch, Sale, SaleItem, ExpenseCategory, Expense,
+    PartialPaymentReminderConfig, PartialPaymentReminderEvent,
+    SubscriptionPaymentTransaction
 )
 
 
@@ -136,6 +138,30 @@ class ExpenseAdmin(admin.ModelAdmin):
     search_fields = ("description", "category__name")
     list_filter = ("tenant", "category", "expense_date", "created_at")
     ordering = ("-expense_date",)
+
+
+@admin.register(PartialPaymentReminderConfig)
+class PartialPaymentReminderConfigAdmin(admin.ModelAdmin):
+    list_display = ("sale", "tenant", "due_date", "auto_send_enabled", "email_enabled", "sms_enabled", "is_active")
+    search_fields = ("sale__invoice_number", "customer_email", "customer_phone")
+    list_filter = ("tenant", "auto_send_enabled", "email_enabled", "sms_enabled", "is_active")
+    ordering = ("-updated_at",)
+
+
+@admin.register(PartialPaymentReminderEvent)
+class PartialPaymentReminderEventAdmin(admin.ModelAdmin):
+    list_display = ("sale", "channel", "mode", "status", "scheduled_for", "sent_at")
+    search_fields = ("sale__invoice_number", "recipient", "message")
+    list_filter = ("tenant", "channel", "mode", "status")
+    ordering = ("-sent_at",)
+
+
+@admin.register(SubscriptionPaymentTransaction)
+class SubscriptionPaymentTransactionAdmin(admin.ModelAdmin):
+    list_display = ("id", "tenant", "plan_id", "provider", "status", "amount", "currency", "created_at")
+    search_fields = ("reference_id", "external_id", "provider_transaction_id", "tenant__name", "plan_id")
+    list_filter = ("provider", "status", "billing_cycle", "currency", "created_at")
+    ordering = ("-created_at",)
 
 
 # Register User with custom admin

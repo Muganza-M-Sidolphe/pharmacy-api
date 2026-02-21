@@ -150,7 +150,7 @@ class StorekeeperApproveSaleView(APIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
-        description="Approve a sale (storekeeper only)",
+        description="Approve a sale (storekeeper only). For PARTIAL invoices with due balance, next approver is OWNER.",
         tags=["storekeeper"]
     )
     def post(self, request, sale_id):
@@ -190,15 +190,29 @@ class StorekeeperApproveSaleView(APIView):
         sale.status = 'APPROVED'
         sale.approved_at = timezone.now()
         sale.approved_by = request.user
+        if sale.payment_option == 'PARTIAL' and sale.due_amount > 0:
+            sale.owner_approval_status = 'PENDING'
+            sale.pharmacist_approval_status = 'PENDING'
         sale.save()
         
-        # Notify cashier of approval
-        Notification.objects.create(
-            tenant_id=tenant_id,
-            title="Sale Approved",
-            message=f"Sale invoice {sale.invoice_number} has been approved",
-            recipient=sale.cashier
-        )
+        # For partial invoices, owner is next approver in the chain.
+        if sale.payment_option == 'PARTIAL' and sale.due_amount > 0:
+            owners = UserTenant.objects.filter(tenant_id=tenant_id, role='OWNER')
+            for owner in owners:
+                Notification.objects.create(
+                    tenant_id=tenant_id,
+                    title="Partial Invoice Needs Owner Approval",
+                    message=f"Invoice {sale.invoice_number} was approved by storekeeper and now requires owner approval.",
+                    recipient_id=owner.user_id
+                )
+        else:
+            # Non-partial invoices continue normal flow.
+            Notification.objects.create(
+                tenant_id=tenant_id,
+                title="Sale Approved",
+                message=f"Sale invoice {sale.invoice_number} has been approved",
+                recipient=sale.cashier
+            )
         
         return Response(SaleSerializer(sale).data)
 

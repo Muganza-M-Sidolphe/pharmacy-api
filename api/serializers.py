@@ -208,7 +208,7 @@ class AddMedicineWithStockSerializer(serializers.Serializer):
         return medicine
 
 
-from .models import Sale, SaleItem
+from .models import Sale, SaleItem, UserTenant
 
 
 class SaleItemSerializer(serializers.ModelSerializer):
@@ -227,6 +227,8 @@ class SaleSerializer(serializers.ModelSerializer):
     tenantId = serializers.UUIDField(source='tenant.id', read_only=True)
     cashierId = serializers.UUIDField(source='cashier.id', read_only=True)
     approvedBy = serializers.UUIDField(source='approved_by.id', read_only=True, allow_null=True)
+    approvedByName = serializers.SerializerMethodField()
+    approvedByRole = serializers.SerializerMethodField()
     items = SaleItemSerializer(many=True, read_only=True)
     createdAt = serializers.DateTimeField(source='created_at', read_only=True)
     updatedAt = serializers.DateTimeField(source='updated_at', read_only=True)
@@ -240,12 +242,37 @@ class SaleSerializer(serializers.ModelSerializer):
     paidAmount = serializers.DecimalField(source='paid_amount', max_digits=12, decimal_places=2)
     dueAmount = serializers.DecimalField(source='due_amount', max_digits=12, decimal_places=2)
     totalAmount = serializers.DecimalField(source='total_amount', max_digits=12, decimal_places=2)
+    status = serializers.SerializerMethodField()
+
+    def get_approvedByName(self, obj):
+        if not obj.approved_by:
+            return None
+        return obj.approved_by.name
+
+    def get_approvedByRole(self, obj):
+        if not obj.approved_by:
+            return None
+        if obj.approved_by.is_super_admin:
+            return "SUPER_ADMIN"
+        relation = UserTenant.objects.filter(
+            user=obj.approved_by,
+            tenant=obj.tenant
+        ).first()
+        return relation.role if relation else None
+
+    def get_status(self, obj):
+        # Response label for payment progress.
+        if obj.status in ['APPROVED', 'COMPLETED'] and obj.due_amount <= 0:
+            return 'PAID'
+        if obj.status == 'APPROVED' and obj.due_amount > 0:
+            return 'APPROVED (Pending Payment)'
+        return obj.status
 
     class Meta:
         model = Sale
         fields = ['id', 'tenantId', 'cashierId', 'invoiceNumber', 'customerName', 'customerPhone', 'notes', 'status', 
                   'paymentOption', 'paymentMethod', 'subtotal', 'discountAmount', 'paidAmount', 'dueAmount', 
-                  'totalAmount', 'items', 'createdAt', 'updatedAt', 'approvedAt', 'approvedBy']
+                  'totalAmount', 'items', 'createdAt', 'updatedAt', 'approvedAt', 'approvedBy', 'approvedByName', 'approvedByRole']
         read_only_fields = ['id', 'invoiceNumber', 'status', 'createdAt', 'updatedAt', 'approvedAt', 'approvedBy']
 
 
@@ -726,6 +753,9 @@ class PharmacistInvoiceDetailSerializer(serializers.Serializer):
     paymentOption = serializers.CharField()
     status = serializers.CharField()
     approvalStatus = serializers.CharField()
+    approvedBy = serializers.UUIDField(allow_null=True)
+    approvedByName = serializers.CharField(allow_null=True)
+    approvedByRole = serializers.CharField(allow_null=True)
     items = PharmacistInvoiceItemSerializer(many=True)
     createdAt = serializers.DateTimeField()
     approvedAt = serializers.DateTimeField(allow_null=True)
@@ -743,6 +773,9 @@ class PharmacistInvoiceListItemSerializer(serializers.Serializer):
     paymentOption = serializers.CharField()
     status = serializers.CharField()
     approvalStatus = serializers.CharField()
+    approvedBy = serializers.UUIDField(allow_null=True)
+    approvedByName = serializers.CharField(allow_null=True)
+    approvedByRole = serializers.CharField(allow_null=True)
     itemCount = serializers.IntegerField()
     createdAt = serializers.DateTimeField()
 
