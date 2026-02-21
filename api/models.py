@@ -161,6 +161,11 @@ class Sale(models.Model):
         ("MOBILE_MONEY", "Mobile Money"),
         ("BANK_TRANSFER", "Bank Transfer"),
     )
+    APPROVAL_STATUS_CHOICES = (
+        ("PENDING", "Pending"),
+        ("APPROVED", "Approved"),
+        ("REJECTED", "Rejected"),
+    )
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='sales')
@@ -179,6 +184,31 @@ class Sale(models.Model):
     paid_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     due_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     total_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    due_date = models.DateField(null=True, blank=True)
+
+    owner_approval_status = models.CharField(
+        max_length=20, choices=APPROVAL_STATUS_CHOICES, default="PENDING"
+    )
+    owner_approved_at = models.DateTimeField(null=True, blank=True)
+    owner_approved_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="owner_approved_sales",
+    )
+
+    pharmacist_approval_status = models.CharField(
+        max_length=20, choices=APPROVAL_STATUS_CHOICES, default="PENDING"
+    )
+    pharmacist_approved_at = models.DateTimeField(null=True, blank=True)
+    pharmacist_approved_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="pharmacist_approved_sales",
+    )
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -202,6 +232,60 @@ class SaleItem(models.Model):
 
     def __str__(self):
         return f"{self.medicine.brand_name} x {self.quantity} in Sale {self.sale.invoice_number}"
+
+
+class PartialPaymentReminderConfig(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="partial_payment_reminder_configs")
+    sale = models.OneToOneField(Sale, on_delete=models.CASCADE, related_name="reminder_config")
+    due_date = models.DateField()
+    reminder_days_before = models.JSONField(default=list, blank=True)
+    auto_send_enabled = models.BooleanField(default=True)
+    email_enabled = models.BooleanField(default=True)
+    sms_enabled = models.BooleanField(default=True)
+    customer_email = models.EmailField(null=True, blank=True)
+    customer_phone = models.CharField(max_length=50, null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="created_reminder_configs")
+    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="updated_reminder_configs")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"ReminderConfig({self.sale.invoice_number})"
+
+
+class PartialPaymentReminderEvent(models.Model):
+    CHANNEL_CHOICES = (
+        ("EMAIL", "Email"),
+        ("SMS", "SMS"),
+    )
+    MODE_CHOICES = (
+        ("AUTO", "Auto"),
+        ("MANUAL", "Manual"),
+    )
+    STATUS_CHOICES = (
+        ("SENT", "Sent"),
+        ("FAILED", "Failed"),
+        ("SKIPPED", "Skipped"),
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="partial_payment_reminder_events")
+    sale = models.ForeignKey(Sale, on_delete=models.CASCADE, related_name="reminder_events")
+    config = models.ForeignKey(PartialPaymentReminderConfig, on_delete=models.CASCADE, related_name="events")
+    channel = models.CharField(max_length=10, choices=CHANNEL_CHOICES)
+    mode = models.CharField(max_length=10, choices=MODE_CHOICES)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="SENT")
+    scheduled_for = models.DateField(null=True, blank=True)
+    sent_at = models.DateTimeField(auto_now_add=True)
+    recipient = models.CharField(max_length=255, null=True, blank=True)
+    message = models.TextField(blank=True, null=True)
+    error_message = models.TextField(blank=True, null=True)
+    sent_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="sent_partial_payment_reminders")
+
+    def __str__(self):
+        return f"ReminderEvent({self.sale.invoice_number}, {self.channel}, {self.mode}, {self.status})"
 
 
 class ExpenseCategory(models.Model):
@@ -281,6 +365,49 @@ class SubscriptionEvent(models.Model):
 
     def __str__(self):
         return f"{self.action} ({self.tenant.name})"
+
+
+class SubscriptionPaymentTransaction(models.Model):
+    PROVIDER_CHOICES = (
+        ("MTN_MOMO", "MTN MoMo"),
+    )
+    STATUS_CHOICES = (
+        ("PENDING", "Pending"),
+        ("SUCCESS", "Success"),
+        ("FAILED", "Failed"),
+        ("EXPIRED", "Expired"),
+        ("CANCELLED", "Cancelled"),
+    )
+    BILLING_CYCLE_CHOICES = (
+        ("monthly", "Monthly"),
+        ("annual", "Annual"),
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="subscription_payment_transactions")
+    plan_id = models.CharField(max_length=50)
+    billing_cycle = models.CharField(max_length=20, choices=BILLING_CYCLE_CHOICES, default="monthly")
+    amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    currency = models.CharField(max_length=10, default="RWF")
+    payment_method = models.CharField(max_length=50, default="mtn_momo")
+    provider = models.CharField(max_length=30, choices=PROVIDER_CHOICES, default="MTN_MOMO")
+    phone_number = models.CharField(max_length=50, null=True, blank=True)
+    reference_id = models.CharField(max_length=80, unique=True, null=True, blank=True)
+    external_id = models.CharField(max_length=120, null=True, blank=True)
+    provider_status = models.CharField(max_length=50, null=True, blank=True)
+    provider_transaction_id = models.CharField(max_length=120, null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="PENDING")
+    failure_reason = models.TextField(null=True, blank=True)
+    provider_payload = models.JSONField(default=dict, blank=True)
+    callback_payload = models.JSONField(default=dict, blank=True)
+    paid_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="created_subscription_payments")
+    event = models.ForeignKey(SubscriptionEvent, on_delete=models.SET_NULL, null=True, blank=True, related_name="payment_transactions")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"SubscriptionPayment({self.tenant.name}, {self.plan_id}, {self.status})"
 
 
 class SubscriptionPlan(models.Model):

@@ -137,6 +137,22 @@ class OwnerInvoicesBaseView(APIView):
                 ),
             )
 
+    def _approved_by_name(self, sale):
+        if not sale.approved_by:
+            return None
+        return sale.approved_by.name
+
+    def _approved_by_role(self, sale):
+        if not sale.approved_by:
+            return None
+        if sale.approved_by.is_super_admin:
+            return "SUPER_ADMIN"
+        user_tenant = UserTenant.objects.filter(
+            user=sale.approved_by,
+            tenant_id=sale.tenant_id,
+        ).first()
+        return user_tenant.role if user_tenant else None
+
 
 class OwnerInvoicesListView(OwnerInvoicesBaseView):
     @extend_schema(
@@ -166,7 +182,7 @@ class OwnerInvoicesListView(OwnerInvoicesBaseView):
 
         invoices = (
             self._owner_visible_invoices(tenant_id)
-            .select_related("cashier")
+            .select_related("cashier", "approved_by")
             .prefetch_related("items__medicine")
             .order_by("-created_at")
         )
@@ -199,6 +215,9 @@ class OwnerInvoicesListView(OwnerInvoicesBaseView):
                     "cashierName": sale.cashier.name if sale.cashier_id and sale.cashier else "N/A",
                     "createdAt": sale.created_at,
                     "approvedAt": sale.approved_at,
+                    "approvedBy": str(sale.approved_by_id) if sale.approved_by_id else None,
+                    "approvedByName": self._approved_by_name(sale),
+                    "approvedByRole": self._approved_by_role(sale),
                 }
             )
 
@@ -228,7 +247,7 @@ class OwnerInvoiceDetailView(OwnerInvoicesBaseView):
             return access_error
 
         try:
-            sale = self._owner_visible_invoices(tenant_id).select_related("cashier").prefetch_related("items__medicine", "items__batch").get(
+            sale = self._owner_visible_invoices(tenant_id).select_related("cashier", "approved_by").prefetch_related("items__medicine", "items__batch").get(
                 id=invoice_id,
             )
         except Sale.DoesNotExist:
@@ -273,6 +292,8 @@ class OwnerInvoiceDetailView(OwnerInvoicesBaseView):
                 "cashierName": sale.cashier.name if sale.cashier_id and sale.cashier else "N/A",
                 "approvedAt": sale.approved_at,
                 "approvedBy": str(sale.approved_by_id) if sale.approved_by_id else None,
+                "approvedByName": self._approved_by_name(sale),
+                "approvedByRole": self._approved_by_role(sale),
                 "items": items,
             },
             status=status.HTTP_200_OK,
@@ -341,7 +362,7 @@ class OwnerInvoicesDashboardView(OwnerInvoicesBaseView):
 
         invoices = (
             self._owner_visible_invoices(tenant_id)
-            .select_related("cashier")
+            .select_related("cashier", "approved_by")
             .prefetch_related("items__medicine")
             .order_by("-created_at")
         )
@@ -396,6 +417,9 @@ class OwnerInvoicesDashboardView(OwnerInvoicesBaseView):
                     "cashierId": str(invoice.cashier_id) if invoice.cashier_id else None,
                     "cashierName": invoice.cashier.name if invoice.cashier_id and invoice.cashier else "N/A",
                     "createdAt": invoice.created_at,
+                    "approvedBy": str(invoice.approved_by_id) if invoice.approved_by_id else None,
+                    "approvedByName": self._approved_by_name(invoice),
+                    "approvedByRole": self._approved_by_role(invoice),
                 }
             )
 

@@ -21,7 +21,7 @@ class PharmacistPartialPaymentsListView(APIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
-        description="Get partial payment invoices pending pharmacist approval",
+        description="Stage 2: list PARTIAL invoices approved by OWNER and awaiting PHARMACIST approval.",
         parameters=[
             {"name": "tenantId", "in": "query", "required": True, "schema": {"type": "string"}},
             {"name": "page", "in": "query", "schema": {"type": "integer", "default": 1}},
@@ -42,13 +42,13 @@ class PharmacistPartialPaymentsListView(APIView):
         except UserTenant.DoesNotExist:
             return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
 
-        # Query: Partial payment invoices (status APPROVED, payment_option PARTIAL, due_amount > 0)
-        # These are invoices that accountant approved but are pending pharmacist review
+        # Query: partial invoices approved by owner and pending pharmacist review.
         partial_invoices = Sale.objects.filter(
             tenant_id=tenant_id,
             status="APPROVED",
             payment_option="PARTIAL",
             due_amount__gt=0,
+            owner_approval_status="APPROVED",
             pharmacist_approval_status__in=["PENDING", None]  # Not yet approved by pharmacist
         ).order_by("-created_at")
 
@@ -61,12 +61,11 @@ class PharmacistPartialPaymentsListView(APIView):
         # Serialize
         results = []
         for invoice in paginated_invoices:
-            customer = invoice.customer
             results.append({
                 "invoiceId": str(invoice.id),
                 "invoiceNumber": invoice.invoice_number,
-                "customerName": customer.name if customer else "",
-                "customerPhone": customer.phone if customer else "",
+                "customerName": invoice.customer_name or "",
+                "customerPhone": invoice.customer_phone or "",
                 "totalAmount": str(invoice.total_amount),
                 "paidAmount": str(invoice.paid_amount),
                 "dueAmount": str(invoice.due_amount),
@@ -92,7 +91,7 @@ class PharmacistPartialPaymentSummaryView(APIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
-        description="Get partial payment summary statistics",
+        description="Pharmacist-stage summary for chain: Storekeeper -> Owner -> Pharmacist -> Accountant.",
         parameters=[
             {"name": "tenantId", "in": "query", "required": True, "schema": {"type": "string"}},
         ],
@@ -109,12 +108,13 @@ class PharmacistPartialPaymentSummaryView(APIView):
         except UserTenant.DoesNotExist:
             return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
 
-        # Partial payments (APPROVED, PARTIAL, due > 0)
+        # Partial payments pending pharmacist after owner approval.
         partial_invoices = Sale.objects.filter(
             tenant_id=tenant_id,
             status="APPROVED",
             payment_option="PARTIAL",
             due_amount__gt=0,
+            owner_approval_status="APPROVED",
             pharmacist_approval_status__in=["PENDING", None]
         )
         partial_count = partial_invoices.count()
@@ -130,21 +130,23 @@ class PharmacistPartialPaymentSummaryView(APIView):
         )
         overdue_count = overdue_invoices.count()
 
-        # Total paid (approved invoices)
+        # Total paid (invoices that passed pharmacist stage)
         approved_invoices = Sale.objects.filter(
             tenant_id=tenant_id,
             status__in=["APPROVED", "COMPLETED"],
+            owner_approval_status="APPROVED",
             pharmacist_approval_status="APPROVED"
         )
         total_paid = approved_invoices.aggregate(Sum("paid_amount"))["paid_amount__sum"] or Decimal("0")
 
-        # Selected for processing (pharmacist_approval_status = APPROVED, waiting for owner)
+        # Selected for processing (owner + pharmacist approved, waiting for accountant delivery release)
         selected_invoices = Sale.objects.filter(
             tenant_id=tenant_id,
             status="APPROVED",
             payment_option="PARTIAL",
+            owner_approval_status="APPROVED",
             pharmacist_approval_status="APPROVED",
-            owner_approval_status__in=["PENDING", None]
+            due_amount__gt=0
         )
         selected_count = selected_invoices.count()
         selected_total = selected_invoices.aggregate(Sum("due_amount"))["due_amount__sum"] or Decimal("0")
@@ -160,11 +162,11 @@ class PharmacistPartialPaymentSummaryView(APIView):
 
 
 class PharmacistApprovePartialPaymentView(APIView):
-    """Pharmacist approves partial payment (selects for owner approval)"""
+    """Pharmacist approves partial payment (routes to accountant)"""
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
-        description="Pharmacist approves partial payment invoice",
+        description="Stage 2 approval: PHARMACIST approves PARTIAL invoice and routes it to ACCOUNTANT.",
         parameters=[
             {"name": "tenantId", "in": "query", "required": True, "schema": {"type": "string"}},
             {"name": "invoice_id", "in": "path", "required": True, "schema": {"type": "string"}},
@@ -188,8 +190,12 @@ class PharmacistApprovePartialPaymentView(APIView):
         except Sale.DoesNotExist:
             return Response({"error": "Invoice not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        # Only APPROVED invoices with PARTIAL payment can be approved by pharmacist
-        if invoice.status != "APPROVED" or invoice.payment_option != "PARTIAL":
+        # Pharmacist approves after owner approval.
+        if (
+            invoice.status != "APPROVED"
+            or invoice.payment_option != "PARTIAL"
+            or invoice.owner_approval_status != "APPROVED"
+        ):
             return Response({"error": "Invoice is not eligible for pharmacist approval"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Mark as pharmacist approved
@@ -198,22 +204,20 @@ class PharmacistApprovePartialPaymentView(APIView):
         invoice.pharmacist_approved_by = request.user
         invoice.save()
 
-        # Create notification for owner
+        # Notify accountants (next approver in chain).
         notes = request.data.get("notes", "")
-        Notification.objects.create(
-            tenant_id=tenant_id,
-            user_id=invoice.owner.id if hasattr(invoice, 'owner') else None,
-            title="Partial Payment Approval",
-            message=f"Pharmacist approved partial payment for invoice {invoice.invoice_number}. Awaiting your final approval.",
-            notification_type="partial_payment_approval",
-            related_invoice=invoice,
-            created_by=request.user,
-            notes=notes
-        )
+        accountants = UserTenant.objects.filter(tenant_id=tenant_id, role="ACCOUNTANT")
+        for accountant in accountants:
+            Notification.objects.create(
+                tenant_id=tenant_id,
+                recipient_id=accountant.user_id,
+                title="Partial Invoice Approved by Pharmacist",
+                message=f"Pharmacist approved partial invoice {invoice.invoice_number}. Accountant approval is required next.",
+            )
 
         return Response({
             "success": True,
-            "message": "Partial payment approved. Owner notification sent.",
+            "message": "Partial payment approved. Accountant notification sent.",
             "invoiceId": str(invoice.id),
         }, status=status.HTTP_200_OK)
 
@@ -223,7 +227,7 @@ class PharmacistRejectPartialPaymentView(APIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
-        description="Pharmacist rejects partial payment invoice",
+        description="Stage 2 rejection: PHARMACIST rejects PARTIAL invoice and notifies OWNER.",
         parameters=[
             {"name": "tenantId", "in": "query", "required": True, "schema": {"type": "string"}},
             {"name": "invoice_id", "in": "path", "required": True, "schema": {"type": "string"}},
@@ -255,21 +259,19 @@ class PharmacistRejectPartialPaymentView(APIView):
         invoice.pharmacist_approval_status = "REJECTED"
         invoice.save()
 
-        # Create notification for accountant
+        # Notify owner on pharmacist rejection.
         rejection_reason = request.data.get("rejectionReason", "")
-        Notification.objects.create(
-            tenant_id=tenant_id,
-            user_id=invoice.approved_by.id if hasattr(invoice, 'approved_by') else None,
-            title="Partial Payment Rejected",
-            message=f"Pharmacist rejected partial payment for invoice {invoice.invoice_number}. Reason: {rejection_reason}",
-            notification_type="partial_payment_rejection",
-            related_invoice=invoice,
-            created_by=request.user,
-            notes=rejection_reason
-        )
+        owner_relations = UserTenant.objects.filter(tenant_id=tenant_id, role="OWNER")
+        for owner in owner_relations:
+            Notification.objects.create(
+                tenant_id=tenant_id,
+                recipient_id=owner.user_id,
+                title="Partial Payment Rejected by Pharmacist",
+                message=f"Pharmacist rejected partial payment for invoice {invoice.invoice_number}. Reason: {rejection_reason}",
+            )
 
         return Response({
             "success": True,
-            "message": "Partial payment rejected. Accountant notification sent.",
+            "message": "Partial payment rejected. Owner notification sent.",
             "invoiceId": str(invoice.id),
         }, status=status.HTTP_200_OK)

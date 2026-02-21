@@ -1,15 +1,26 @@
+import os
+import uuid
 from datetime import timedelta
 from decimal import Decimal
 
 from django.http import HttpResponse
+from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from ...models import Medicine, Sale, SubscriptionEvent, TenantSubscription, UserTenant
+from ...models import (
+    Medicine,
+    Sale,
+    SubscriptionEvent,
+    SubscriptionPaymentTransaction,
+    TenantSubscription,
+    UserTenant,
+)
 from ...utils.subscription_catalog import PLAN_CATALOG, get_plan_by_id
+from ...utils.mtn_momo import MtnMomoError, get_collection_status, initiate_collection
 
 
 PRICING_FAQS = [
@@ -91,6 +102,74 @@ def _serialize_subscription(subscription):
     }
 
 
+def _resolve_plan_pricing(plan, billing_cycle):
+    normalized_cycle = billing_cycle if billing_cycle in {"monthly", "annual"} else "monthly"
+    pricing = plan.get("pricing", {}).get(normalized_cycle, {})
+    amount = Decimal(str(pricing.get("amount", 0)))
+    currency = pricing.get("currency", "RWF")
+    return normalized_cycle, amount, currency
+
+
+def _apply_successful_subscription_payment(transaction, source="payment"):
+    subscription = _ensure_subscription(transaction.tenant)
+    previous_plan_id = subscription.plan_id
+    today = timezone.now().date()
+    duration_days = 365 if transaction.billing_cycle == "annual" else 30
+
+    subscription.plan_id = transaction.plan_id
+    subscription.status = "ACTIVE"
+    subscription.billing_cycle = transaction.billing_cycle
+    subscription.subscription_start_date = today
+    subscription.subscription_end_date = today + timedelta(days=duration_days)
+    subscription.cancelled_at = None
+    subscription.save(
+        update_fields=[
+            "plan_id",
+            "status",
+            "billing_cycle",
+            "subscription_start_date",
+            "subscription_end_date",
+            "cancelled_at",
+            "updated_at",
+        ]
+    )
+
+    if transaction.event_id:
+        return subscription
+
+    event = SubscriptionEvent.objects.create(
+        tenant=transaction.tenant,
+        action="PAYMENT",
+        from_plan_id=previous_plan_id,
+        to_plan_id=transaction.plan_id,
+        payment_method=transaction.payment_method,
+        amount=transaction.amount,
+        metadata={
+            "provider": transaction.provider,
+            "referenceId": transaction.reference_id,
+            "providerStatus": transaction.provider_status,
+            "source": source,
+            "billingCycle": transaction.billing_cycle,
+            "currency": transaction.currency,
+        },
+        created_by=transaction.created_by,
+    )
+    transaction.event = event
+    transaction.save(update_fields=["event", "updated_at"])
+    return subscription
+
+
+def _normalize_provider_status(raw_status):
+    value = (raw_status or "").upper()
+    if value in {"SUCCESSFUL", "SUCCESS", "COMPLETED"}:
+        return "SUCCESS"
+    if value in {"FAILED", "FAIL", "REJECTED", "TIMEOUT", "CANCELLED"}:
+        return "FAILED"
+    if value in {"PENDING", "PROCESSING"}:
+        return "PENDING"
+    return "PENDING"
+
+
 class PricingPlansView(APIView):
     authentication_classes = []
     permission_classes = []
@@ -130,7 +209,8 @@ class PricingFAQView(APIView):
 
 
 class PricingCalculateUpgradeView(APIView):
-    permission_classes = [IsAuthenticated]
+    authentication_classes = []
+    permission_classes = [AllowAny]
 
     def get(self, request):
         target_plan_id = request.query_params.get("targetPlanId")
@@ -141,15 +221,13 @@ class PricingCalculateUpgradeView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        current_plan_id = request.query_params.get("currentPlanId")
         tenant = _tenant_from_request(request)
-        if not tenant:
-            return Response(
-                {"success": False, "message": "No tenant context found"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        subscription = _ensure_subscription(tenant)
-        current_plan = get_plan_by_id(subscription.plan_id) or PLAN_CATALOG[0]
+        if tenant:
+            subscription = _ensure_subscription(tenant)
+            current_plan = get_plan_by_id(subscription.plan_id) or PLAN_CATALOG[0]
+        else:
+            current_plan = get_plan_by_id(current_plan_id or "starter") or PLAN_CATALOG[0]
 
         current_price = Decimal(str(current_plan["pricing"]["monthly"]["amount"]))
         target_price = Decimal(str(target_plan["pricing"]["monthly"]["amount"]))
@@ -188,14 +266,28 @@ class PricingRecommendationView(APIView):
 
 
 class SubscriptionPlansView(APIView):
-    permission_classes = [IsAuthenticated]
+    authentication_classes = []
+    permission_classes = [AllowAny]
 
     def get(self, request):
         tenant = _tenant_from_request(request)
         if not tenant:
+            default_plan = get_plan_by_id("starter") or PLAN_CATALOG[0]
             return Response(
-                {"success": False, "message": "No tenant context found"},
-                status=status.HTTP_403_FORBIDDEN,
+                {
+                    "success": True,
+                    "data": {
+                        "plan": default_plan,
+                        "status": "public",
+                        "trialDaysRemaining": 0,
+                        "trialEndDate": None,
+                        "subscriptionStartDate": None,
+                        "subscriptionEndDate": None,
+                        "features": default_plan.get("features", {}),
+                        "limits": default_plan.get("limits", {}),
+                        "plans": PLAN_CATALOG,
+                    },
+                }
             )
 
         subscription = _ensure_subscription(tenant)
@@ -203,7 +295,8 @@ class SubscriptionPlansView(APIView):
 
 
 class SubscriptionPlanDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+    authentication_classes = []
+    permission_classes = [AllowAny]
 
     def get(self, request, plan_id):
         plan = get_plan_by_id(plan_id)
@@ -499,6 +592,7 @@ class SubscriptionPaymentView(APIView):
     def post(self, request):
         plan_id = request.data.get("planId")
         payment_method = request.data.get("paymentMethod", "card")
+        billing_cycle = request.data.get("billingCycle", "monthly")
         plan = get_plan_by_id(plan_id)
         if not plan:
             return Response(
@@ -513,17 +607,271 @@ class SubscriptionPaymentView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        billing_cycle, amount, currency = _resolve_plan_pricing(plan, billing_cycle)
+
+        if payment_method == "mtn_momo":
+            phone_number = str(request.data.get("phoneNumber", "")).strip()
+            if not phone_number:
+                return Response(
+                    {"success": False, "message": "phoneNumber is required for MTN MoMo payments"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            callback_url = (
+                request.data.get("callbackUrl")
+                or os.getenv("MTN_MOMO_CALLBACK_URL")
+                or request.build_absolute_uri(reverse("subscriptions-payment-mtn-webhook"))
+            )
+            external_id = (
+                request.data.get("externalId")
+                or f"SUB-{tenant.id}-{uuid.uuid4().hex[:8]}"
+            )
+
+            transaction = SubscriptionPaymentTransaction.objects.create(
+                tenant=tenant,
+                plan_id=plan_id,
+                billing_cycle=billing_cycle,
+                amount=amount,
+                currency=currency,
+                payment_method=payment_method,
+                provider="MTN_MOMO",
+                phone_number=phone_number,
+                external_id=external_id,
+                status="PENDING",
+                created_by=request.user,
+            )
+
+            try:
+                provider_response = initiate_collection(
+                    amount=amount,
+                    currency=currency,
+                    phone_number=phone_number,
+                    external_id=external_id,
+                    callback_url=callback_url,
+                    payer_message=f"Subscription {plan_id}",
+                    payee_note=f"{billing_cycle} subscription payment",
+                )
+            except MtnMomoError as exc:
+                transaction.status = "FAILED"
+                transaction.failure_reason = str(exc)
+                transaction.save(update_fields=["status", "failure_reason", "updated_at"])
+                return Response(
+                    {"success": False, "message": str(exc)},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+
+            transaction.reference_id = provider_response["reference_id"]
+            transaction.provider_status = "PENDING"
+            transaction.provider_payload = provider_response.get("response_payload") or {}
+            transaction.save(update_fields=["reference_id", "provider_status", "provider_payload", "updated_at"])
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "MTN payment initiated. Customer should approve the request on phone.",
+                    "data": {
+                        "transactionId": str(transaction.id),
+                        "referenceId": transaction.reference_id,
+                        "status": transaction.status,
+                        "providerStatus": transaction.provider_status,
+                        "amount": str(transaction.amount),
+                        "currency": transaction.currency,
+                        "planId": plan_id,
+                        "billingCycle": billing_cycle,
+                    },
+                },
+                status=status.HTTP_202_ACCEPTED,
+            )
+
+        # Fallback non-mobile methods remain immediate
         event = SubscriptionEvent.objects.create(
             tenant=tenant,
             action="PAYMENT",
             from_plan_id=plan_id,
             to_plan_id=plan_id,
             payment_method=payment_method,
-            amount=Decimal(str(plan["pricing"]["monthly"]["amount"])),
+            amount=amount,
             metadata={"provider": request.data.get("provider"), "reference": request.data.get("reference")},
             created_by=request.user,
         )
         return Response({"success": True, "data": {"invoiceId": str(event.id)}})
+
+
+class SubscriptionPaymentStatusView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, transaction_id):
+        tenant = _tenant_from_request(request)
+        if not tenant:
+            return Response(
+                {"success": False, "message": "No tenant context found"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        transaction = SubscriptionPaymentTransaction.objects.filter(
+            id=transaction_id,
+            tenant=tenant,
+        ).first()
+        if not transaction:
+            return Response(
+                {"success": False, "message": "Transaction not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if transaction.provider == "MTN_MOMO" and transaction.status == "PENDING" and transaction.reference_id:
+            try:
+                provider_payload = get_collection_status(transaction.reference_id)
+                provider_status = provider_payload.get("status")
+                normalized = _normalize_provider_status(provider_status)
+                transaction.provider_payload = provider_payload
+                transaction.provider_status = provider_status
+
+                if normalized == "SUCCESS":
+                    transaction.status = "SUCCESS"
+                    transaction.failure_reason = None
+                    transaction.paid_at = transaction.paid_at or timezone.now()
+                    transaction.provider_transaction_id = (
+                        provider_payload.get("financialTransactionId")
+                        or transaction.provider_transaction_id
+                    )
+                    transaction.save(
+                        update_fields=[
+                            "provider_payload",
+                            "provider_status",
+                            "status",
+                            "failure_reason",
+                            "paid_at",
+                            "provider_transaction_id",
+                            "updated_at",
+                        ]
+                    )
+                    _apply_successful_subscription_payment(transaction, source="status_poll")
+                elif normalized == "FAILED":
+                    transaction.status = "FAILED"
+                    transaction.failure_reason = (
+                        provider_payload.get("reason")
+                        or provider_payload.get("reasonCode")
+                        or "Payment failed"
+                    )
+                    transaction.provider_transaction_id = (
+                        provider_payload.get("financialTransactionId")
+                        or transaction.provider_transaction_id
+                    )
+                    transaction.save(
+                        update_fields=[
+                            "provider_payload",
+                            "provider_status",
+                            "status",
+                            "failure_reason",
+                            "provider_transaction_id",
+                            "updated_at",
+                        ]
+                    )
+                else:
+                    transaction.save(update_fields=["provider_payload", "provider_status", "updated_at"])
+            except MtnMomoError:
+                # Keep transaction pending if provider status cannot be fetched.
+                pass
+
+        return Response(
+            {
+                "success": True,
+                "data": {
+                    "transactionId": str(transaction.id),
+                    "status": transaction.status,
+                    "provider": transaction.provider,
+                    "providerStatus": transaction.provider_status,
+                    "referenceId": transaction.reference_id,
+                    "planId": transaction.plan_id,
+                    "billingCycle": transaction.billing_cycle,
+                    "amount": str(transaction.amount),
+                    "currency": transaction.currency,
+                    "paidAt": transaction.paid_at.isoformat() if transaction.paid_at else None,
+                    "failureReason": transaction.failure_reason,
+                },
+            }
+        )
+
+
+class SubscriptionMtnWebhookView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        payload = request.data if isinstance(request.data, dict) else {}
+        reference_id = (
+            request.headers.get("X-Reference-Id")
+            or payload.get("referenceId")
+            or request.query_params.get("referenceId")
+        )
+        if not reference_id:
+            return Response({"success": False, "message": "referenceId is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        transaction = SubscriptionPaymentTransaction.objects.filter(reference_id=reference_id).first()
+        if not transaction:
+            return Response({"success": True, "message": "No matching transaction"})
+
+        provider_status = payload.get("status") or payload.get("providerStatus")
+        normalized = _normalize_provider_status(provider_status)
+
+        transaction.callback_payload = payload
+        transaction.provider_status = provider_status or transaction.provider_status
+        transaction.provider_transaction_id = (
+            payload.get("financialTransactionId")
+            or payload.get("providerTransactionId")
+            or transaction.provider_transaction_id
+        )
+
+        if normalized == "SUCCESS":
+            if transaction.status != "SUCCESS":
+                transaction.status = "SUCCESS"
+                transaction.failure_reason = None
+                transaction.paid_at = transaction.paid_at or timezone.now()
+                transaction.save(
+                    update_fields=[
+                        "callback_payload",
+                        "provider_status",
+                        "provider_transaction_id",
+                        "status",
+                        "failure_reason",
+                        "paid_at",
+                        "updated_at",
+                    ]
+                )
+                _apply_successful_subscription_payment(transaction, source="webhook")
+            else:
+                transaction.save(update_fields=["callback_payload", "provider_status", "provider_transaction_id", "updated_at"])
+        elif normalized == "FAILED":
+            transaction.status = "FAILED"
+            transaction.failure_reason = (
+                payload.get("reason")
+                or payload.get("reasonCode")
+                or transaction.failure_reason
+                or "Payment failed"
+            )
+            transaction.save(
+                update_fields=[
+                    "callback_payload",
+                    "provider_status",
+                    "provider_transaction_id",
+                    "status",
+                    "failure_reason",
+                    "updated_at",
+                ]
+            )
+        else:
+            transaction.status = "PENDING"
+            transaction.save(
+                update_fields=[
+                    "callback_payload",
+                    "provider_status",
+                    "provider_transaction_id",
+                    "status",
+                    "updated_at",
+                ]
+            )
+
+        return Response({"success": True, "message": "Webhook processed"})
 
 
 class SubscriptionInvoicesView(APIView):
@@ -560,4 +908,5 @@ class SubscriptionInvoiceDownloadView(APIView):
         content = f"Invoice {invoice_id}\nGenerated at: {timezone.now().isoformat()}\n"
         response = HttpResponse(content, content_type="text/plain")
         response["Content-Disposition"] = f'attachment; filename="invoice-{invoice_id}.txt"'
+        response["Access-Control-Expose-Headers"] = "Content-Disposition"
         return response

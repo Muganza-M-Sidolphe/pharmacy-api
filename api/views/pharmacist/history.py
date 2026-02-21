@@ -261,6 +261,7 @@ class PharmacistHistoryExportView(APIView):
         # Create CSV response
         response = HttpResponse(content_type="text/csv")
         response["Content-Disposition"] = 'attachment; filename="pharmacist_approval_history.csv"'
+        response["Access-Control-Expose-Headers"] = "Content-Disposition"
 
         writer = csv.writer(response)
         writer.writerow([

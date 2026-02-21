@@ -24,6 +24,22 @@ class PharmacistInvoicesListView(APIView):
     """Get all invoices with filtering"""
     permission_classes = [IsAuthenticated]
 
+    def _approved_by_name(self, sale):
+        if not sale.approved_by:
+            return None
+        return sale.approved_by.name
+
+    def _approved_by_role(self, sale):
+        if not sale.approved_by:
+            return None
+        if sale.approved_by.is_super_admin:
+            return "SUPER_ADMIN"
+        user_tenant = UserTenant.objects.filter(
+            user=sale.approved_by,
+            tenant_id=sale.tenant_id,
+        ).first()
+        return user_tenant.role if user_tenant else None
+
     @extend_schema(
         description="Get list of invoices with filters for pharmacist",
         parameters=[
@@ -61,7 +77,7 @@ class PharmacistInvoicesListView(APIView):
         # Base query - invoices that are approved by accountant and visible to pharmacist
         invoices = Sale.objects.filter(
             tenant_id=tenant_id, status__in=["APPROVED", "COMPLETED"]
-        ).order_by('-created_at')
+        ).select_related("approved_by").order_by('-created_at')
 
         # Apply filters
         if status_filter:
@@ -108,6 +124,9 @@ class PharmacistInvoicesListView(APIView):
                 'paymentOption': sale.payment_option,
                 'status': sale.status,
                 'approvalStatus': 'APPROVED' if sale.status in ['APPROVED', 'COMPLETED'] else 'PENDING',
+                'approvedBy': sale.approved_by_id,
+                'approvedByName': self._approved_by_name(sale),
+                'approvedByRole': self._approved_by_role(sale),
                 'itemCount': item_count,
                 'createdAt': sale.created_at,
             })
@@ -147,7 +166,7 @@ class PharmacistInvoiceDetailView(APIView):
             return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
 
         try:
-            sale = Sale.objects.get(id=invoice_id, tenant_id=tenant_id)
+            sale = Sale.objects.select_related("approved_by").get(id=invoice_id, tenant_id=tenant_id)
         except Sale.DoesNotExist:
             return Response({"error": "Invoice not found"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -175,6 +194,9 @@ class PharmacistInvoiceDetailView(APIView):
             'paymentOption': sale.payment_option,
             'status': sale.status,
             'approvalStatus': 'APPROVED' if sale.status in ['APPROVED', 'COMPLETED'] else 'PENDING',
+            'approvedBy': sale.approved_by_id,
+            'approvedByName': self._approved_by_name(sale),
+            'approvedByRole': self._approved_by_role(sale),
             'items': items,
             'createdAt': sale.created_at,
             'approvedAt': sale.approved_at,
@@ -261,7 +283,7 @@ class PharmacistApproveInvoiceView(APIView):
             return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
 
         try:
-            sale = Sale.objects.get(id=invoice_id, tenant_id=tenant_id)
+            sale = Sale.objects.select_related("approved_by").get(id=invoice_id, tenant_id=tenant_id)
         except Sale.DoesNotExist:
             return Response({"error": "Invoice not found"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -306,6 +328,9 @@ class PharmacistApproveInvoiceView(APIView):
             'paymentOption': sale.payment_option,
             'status': sale.status,
             'approvalStatus': 'APPROVED',
+            'approvedBy': sale.approved_by_id,
+            'approvedByName': self._approved_by_name(sale),
+            'approvedByRole': self._approved_by_role(sale),
             'items': items,
             'createdAt': sale.created_at,
             'approvedAt': sale.approved_at,
@@ -411,7 +436,7 @@ class PharmacistApprovePaymentView(APIView):
             return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
 
         try:
-            sale = Sale.objects.get(id=invoice_id, tenant_id=tenant_id)
+            sale = Sale.objects.select_related("approved_by").get(id=invoice_id, tenant_id=tenant_id)
         except Sale.DoesNotExist:
             return Response({"error": "Invoice not found"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -457,6 +482,9 @@ class PharmacistApprovePaymentView(APIView):
             'paymentOption': sale.payment_option,
             'status': sale.status,
             'approvalStatus': approval_status,
+            'approvedBy': sale.approved_by_id,
+            'approvedByName': self._approved_by_name(sale),
+            'approvedByRole': self._approved_by_role(sale),
             'items': items,
             'createdAt': sale.created_at,
             'approvedAt': sale.approved_at,

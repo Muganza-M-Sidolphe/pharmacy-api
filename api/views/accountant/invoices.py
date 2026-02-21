@@ -129,18 +129,18 @@ class AccountantInvoiceDetailView(APIView):
 
 
 class AccountantApproveInvoiceView(APIView):
-    """Accountant approves invoice for final completion."""
+    """Accountant approval stage for invoices."""
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
-        description="Accountant approves invoice (marks as COMPLETED)",
+        description="Stage 3 approval for PARTIAL chain. Requires OWNER + PHARMACIST approvals first; then notifies CASHIER and STORE_KEEPER for delivery.",
         request=None,
         tags=["accountant"]
     )
     def post(self, request, sale_id):
         """
-        Accountant approves and finalizes the invoice.
-        Changes status from APPROVED to COMPLETED.
+        Accountant reviews invoice for payment handling.
+        Keep invoice non-completed until it is fully paid.
         """
         tenant_id = request.query_params.get('tenantId')
         if not tenant_id:
@@ -151,18 +151,47 @@ class AccountantApproveInvoiceView(APIView):
 
         try:
             sale = Sale.objects.get(id=sale_id, tenant_id=tenant_id, status='APPROVED')
-            sale.status = 'COMPLETED'
+            if sale.payment_option == 'PARTIAL' and sale.due_amount > 0:
+                if sale.owner_approval_status != 'APPROVED':
+                    return Response(
+                        {"detail": "Owner approval is required before accountant approval for partial invoices."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                if sale.pharmacist_approval_status != 'APPROVED':
+                    return Response(
+                        {"detail": "Pharmacist approval is required before accountant approval for partial invoices."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+            # Only fully paid invoices can be marked completed.
+            if sale.due_amount <= 0:
+                sale.status = 'COMPLETED'
+            else:
+                sale.status = 'APPROVED'
             sale.approved_at = timezone.now()
             sale.approved_by = request.user
             sale.save()
 
-            # Notify cashier of completion
-            Notification.objects.create(
-                tenant_id=tenant_id,
-                title="Invoice Approved by Accountant",
-                message=f"Invoice {sale.invoice_number} has been approved by accountant",
-                recipient=sale.cashier
-            )
+            # Notify delivery roles after accountant step in partial chain.
+            if sale.payment_option == 'PARTIAL' and sale.due_amount > 0:
+                user_tenants = UserTenant.objects.filter(
+                    tenant_id=tenant_id,
+                    role__in=['CASHIER', 'STORE_KEEPER']
+                )
+                for user_tenant in user_tenants:
+                    Notification.objects.create(
+                        tenant_id=tenant_id,
+                        title="Invoice Ready for Delivery",
+                        message=f"Partial invoice {sale.invoice_number} has passed approvals. Prepare and deliver products to customer.",
+                        recipient_id=user_tenant.user_id
+                    )
+            else:
+                Notification.objects.create(
+                    tenant_id=tenant_id,
+                    title="Invoice Approved by Accountant",
+                    message=f"Invoice {sale.invoice_number} has been approved by accountant",
+                    recipient=sale.cashier
+                )
 
             return Response(SaleSerializer(sale).data, status=status.HTTP_200_OK)
         except Sale.DoesNotExist:
@@ -188,8 +217,8 @@ class AccountantRecordPartialPaymentView(APIView):
     )
     def post(self, request, sale_id):
         """
-        Record a partial payment for an invoice.
-        Updates paid_amount and due_amount.
+        Record a payment for an invoice.
+        Invoice remains non-completed until due amount reaches zero.
         """
         tenant_id = request.query_params.get('tenantId')
         if not tenant_id:
@@ -243,8 +272,10 @@ class AccountantRecordPartialPaymentView(APIView):
             if new_due_amount <= 0:
                 sale.payment_option = 'FULL'
                 sale.due_amount = Decimal('0.00')
+                sale.status = 'COMPLETED'
             else:
                 sale.payment_option = 'PARTIAL'
+                sale.status = 'APPROVED'
 
             sale.save()
 
@@ -302,6 +333,7 @@ class AccountantMarkFullyPaidView(APIView):
             sale.due_amount = Decimal('0.00')
             sale.payment_option = 'FULL'
             sale.payment_method = payment_method
+            sale.status = 'COMPLETED'
             sale.save()
 
             # Notify cashier
