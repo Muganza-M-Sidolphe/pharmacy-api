@@ -9,6 +9,7 @@ from decimal import Decimal
 from ...models import UserTenant, Sale, Expense, Notification
 from ...serializers import AccountantDashboardSummarySerializer, NotificationItemSerializer, ApprovedSalesListSerializer
 from drf_spectacular.utils import extend_schema
+from django.db.models import Q
 
 
 class AccountantDashboardSummaryView(APIView):
@@ -105,7 +106,17 @@ class AccountantApprovedSalesListView(APIView):
         page_size = int(request.query_params.get('page_size', 10))
         payment_filter = request.query_params.get('paymentFilter', 'all')  # all, partial, paid
 
-        qs = Sale.objects.filter(tenant_id=tenant_id, status__in=['APPROVED', 'COMPLETED']).order_by('-created_at')
+        qs = Sale.objects.filter(
+            tenant_id=tenant_id,
+            status__in=['APPROVED', 'COMPLETED']
+        ).filter(
+            Q(payment_option__in=['FULL', 'CREDIT']) |
+            Q(
+                payment_option='PARTIAL',
+                owner_approval_status='APPROVED',
+                pharmacist_approval_status='APPROVED',
+            )
+        ).order_by('-created_at')
 
         # Apply payment status filter
         if payment_filter == 'partial':

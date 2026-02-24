@@ -15,11 +15,10 @@ from datetime import timedelta
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
-
-
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+# Always load environment variables from this project's .env file.
+load_dotenv(BASE_DIR / ".env", override=True)
 
 
 def _env_bool(key, default=False):

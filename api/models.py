@@ -370,6 +370,7 @@ class SubscriptionEvent(models.Model):
 class SubscriptionPaymentTransaction(models.Model):
     PROVIDER_CHOICES = (
         ("MTN_MOMO", "MTN MoMo"),
+        ("LANARI_PAY", "Lanari Pay"),
     )
     STATUS_CHOICES = (
         ("PENDING", "Pending"),

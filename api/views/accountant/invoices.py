@@ -10,6 +10,7 @@ from decimal import Decimal
 from ...models import UserTenant, Sale, Notification
 from ...serializers import SaleSerializer
 from drf_spectacular.utils import extend_schema
+from django.db.models import Q
 
 
 class AccountantInvoicesListView(APIView):
@@ -45,10 +46,18 @@ class AccountantInvoicesListView(APIView):
         page = int(request.query_params.get('page', 1))
         page_size = int(request.query_params.get('page_size', 10))
         
-        # Start with invoices that have been approved by storekeeper
+        # Start with invoices that have been approved by storekeeper.
+        # For PARTIAL chain, accountant sees invoices only after owner + pharmacist approvals.
         qs = Sale.objects.filter(
             tenant_id=tenant_id,
             status__in=['APPROVED', 'COMPLETED']
+        ).filter(
+            Q(payment_option__in=['FULL', 'CREDIT']) |
+            Q(
+                payment_option='PARTIAL',
+                owner_approval_status='APPROVED',
+                pharmacist_approval_status='APPROVED',
+            )
         ).order_by('-created_at')
         
         # Status filtering
