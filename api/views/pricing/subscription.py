@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 from datetime import timedelta
 from decimal import Decimal
@@ -6,6 +7,7 @@ from decimal import Decimal
 from django.http import HttpResponse
 from django.urls import reverse
 from django.utils import timezone
+from django.conf import settings
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -21,6 +23,7 @@ from ...models import (
 )
 from ...utils.subscription_catalog import PLAN_CATALOG, get_plan_by_id
 from ...utils.mtn_momo import MtnMomoError, get_collection_status, initiate_collection
+from ...utils.lanari_pay import LanariPayError, get_payment_status, initiate_payment
 
 
 PRICING_FAQS = [
@@ -110,6 +113,59 @@ def _resolve_plan_pricing(plan, billing_cycle):
     return normalized_cycle, amount, currency
 
 
+def _validate_lanari_payout_numbers(payout_numbers, amount):
+    if payout_numbers is None:
+        return None, None
+    if not isinstance(payout_numbers, list) or not payout_numbers:
+        return None, "payoutNumbers must be a non-empty array"
+
+    cleaned = []
+    total_percentage = Decimal("0")
+    for index, item in enumerate(payout_numbers):
+        if not isinstance(item, dict):
+            return None, f"payoutNumbers[{index}] must be an object"
+
+        tel = str(item.get("tel", "")).strip()
+        if not tel:
+            return None, f"payoutNumbers[{index}].tel is required"
+
+        try:
+            percentage = Decimal(str(item.get("percentage")))
+        except Exception:
+            return None, f"payoutNumbers[{index}].percentage must be numeric"
+
+        if percentage <= 0:
+            return None, f"payoutNumbers[{index}].percentage must be greater than 0"
+
+        payout_amount = (amount * percentage) / Decimal("100")
+        if payout_amount <= Decimal("5"):
+            return None, (
+                f"payoutNumbers[{index}] amount must be greater than 5 RWF "
+                f"(current: {payout_amount})"
+            )
+
+        total_percentage += percentage
+        cleaned.append({"tel": tel, "percentage": float(percentage)})
+
+    if total_percentage != Decimal("100"):
+        return None, f"payoutNumbers percentages must sum to 100 (current: {total_percentage})"
+
+    return cleaned, None
+
+
+def _normalize_rwanda_phone(phone_number):
+    raw = str(phone_number or "").strip()
+    cleaned = re.sub(r"[+\s\-\(\)]", "", raw)
+    if cleaned.startswith("250") and len(cleaned) == 12:
+        cleaned = "0" + cleaned[3:]
+    elif cleaned.startswith("7") and len(cleaned) == 9:
+        cleaned = "0" + cleaned
+
+    if not re.fullmatch(r"07\d{8}", cleaned):
+        return None
+    return cleaned
+
+
 def _apply_successful_subscription_payment(transaction, source="payment"):
     subscription = _ensure_subscription(transaction.tenant)
     previous_plan_id = subscription.plan_id
@@ -163,9 +219,9 @@ def _normalize_provider_status(raw_status):
     value = (raw_status or "").upper()
     if value in {"SUCCESSFUL", "SUCCESS", "COMPLETED"}:
         return "SUCCESS"
-    if value in {"FAILED", "FAIL", "REJECTED", "TIMEOUT", "CANCELLED"}:
+    if value in {"FAILED", "FAIL", "REJECTED", "TIMEOUT", "CANCELLED", "ERROR", "EXPIRED"}:
         return "FAILED"
-    if value in {"PENDING", "PROCESSING"}:
+    if value in {"PENDING", "PROCESSING", "INITIATED", "QUEUED"}:
         return "PENDING"
     return "PENDING"
 
@@ -354,7 +410,7 @@ class SubscriptionUpgradeView(APIView):
         plan_id = request.data.get("planId")
         payment_method = request.data.get("paymentMethod", "card")
         promo_code = request.data.get("promoCode")
-        if payment_method not in {"card", "cash", "bank", "mtn_momo", "airtel_money"}:
+        if payment_method not in {"card", "cash", "bank", "mtn_momo", "airtel_money", "lanari_pay"}:
             promo_code = promo_code or payment_method
             payment_method = "card"
         target_plan = get_plan_by_id(plan_id)
@@ -608,6 +664,36 @@ class SubscriptionPaymentView(APIView):
             )
 
         billing_cycle, amount, currency = _resolve_plan_pricing(plan, billing_cycle)
+        test_amount_raw = request.data.get("testAmount")
+        if test_amount_raw is not None:
+            allow_test_override = os.getenv("ALLOW_TEST_PAYMENT_AMOUNT_OVERRIDE", "").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+            if not (settings.DEBUG and allow_test_override):
+                return Response(
+                    {"success": False, "message": "testAmount override is disabled"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                test_amount = Decimal(str(test_amount_raw))
+            except Exception:
+                return Response(
+                    {"success": False, "message": "testAmount must be a numeric value"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if test_amount <= 0:
+                return Response(
+                    {"success": False, "message": "testAmount must be greater than 0"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            amount = test_amount
+            test_currency = str(request.data.get("testCurrency", "")).strip().upper()
+            if test_currency:
+                currency = test_currency
 
         if payment_method == "mtn_momo":
             phone_number = str(request.data.get("phoneNumber", "")).strip()
@@ -683,6 +769,94 @@ class SubscriptionPaymentView(APIView):
                 status=status.HTTP_202_ACCEPTED,
             )
 
+        if payment_method == "lanari_pay":
+            phone_number = _normalize_rwanda_phone(request.data.get("phoneNumber"))
+            if not phone_number:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Invalid phoneNumber. Use Rwanda format 07XXXXXXXX or 2507XXXXXXXX",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            payout_numbers_input = request.data.get("payoutNumbers", request.data.get("payout_numbers"))
+            payout_numbers, payout_error = _validate_lanari_payout_numbers(payout_numbers_input, amount)
+            if payout_error:
+                return Response(
+                    {"success": False, "message": payout_error},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            customer_email = str(request.data.get("customerEmail", "")).strip() or None
+            custom_description = str(request.data.get("description", "")).strip() or None
+            lanari_amount = int(amount.quantize(Decimal("1")))
+            if lanari_amount < 5:
+                return Response(
+                    {"success": False, "message": "Lanari amount must be at least 5 RWF"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            external_id = (
+                request.data.get("externalId")
+                or f"SUB-{tenant.id}-{uuid.uuid4().hex[:8]}"
+            )
+
+            transaction = SubscriptionPaymentTransaction.objects.create(
+                tenant=tenant,
+                plan_id=plan_id,
+                billing_cycle=billing_cycle,
+                amount=amount,
+                currency=currency,
+                payment_method=payment_method,
+                provider="LANARI_PAY",
+                phone_number=phone_number,
+                external_id=external_id,
+                status="PENDING",
+                created_by=request.user,
+            )
+
+            try:
+                provider_response = initiate_payment(
+                    amount=lanari_amount,
+                    currency=currency,
+                    phone_number=phone_number,
+                    external_id=external_id,
+                    payout_numbers=payout_numbers,
+                    customer_email=customer_email,
+                    description=custom_description,
+                )
+            except LanariPayError as exc:
+                transaction.status = "FAILED"
+                transaction.failure_reason = str(exc)
+                transaction.save(update_fields=["status", "failure_reason", "updated_at"])
+                return Response(
+                    {"success": False, "message": str(exc)},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+
+            transaction.reference_id = provider_response["reference_id"]
+            transaction.provider_status = provider_response.get("provider_status") or "PENDING"
+            transaction.provider_payload = provider_response.get("response_payload") or {}
+            transaction.save(update_fields=["reference_id", "provider_status", "provider_payload", "updated_at"])
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Lanari payment initiated. Customer should approve the request on phone.",
+                    "data": {
+                        "transactionId": str(transaction.id),
+                        "referenceId": transaction.reference_id,
+                        "status": transaction.status,
+                        "providerStatus": transaction.provider_status,
+                        "amount": str(transaction.amount),
+                        "currency": transaction.currency,
+                        "planId": plan_id,
+                        "billingCycle": billing_cycle,
+                    },
+                },
+                status=status.HTTP_202_ACCEPTED,
+            )
+
         # Fallback non-mobile methods remain immediate
         event = SubscriptionEvent.objects.create(
             tenant=tenant,
@@ -718,58 +892,88 @@ class SubscriptionPaymentStatusView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        if transaction.provider == "MTN_MOMO" and transaction.status == "PENDING" and transaction.reference_id:
+        if transaction.status == "PENDING" and transaction.reference_id:
             try:
-                provider_payload = get_collection_status(transaction.reference_id)
-                provider_status = provider_payload.get("status")
-                normalized = _normalize_provider_status(provider_status)
-                transaction.provider_payload = provider_payload
-                transaction.provider_status = provider_status
+                provider_payload = None
+                provider_status = None
 
-                if normalized == "SUCCESS":
-                    transaction.status = "SUCCESS"
-                    transaction.failure_reason = None
-                    transaction.paid_at = transaction.paid_at or timezone.now()
-                    transaction.provider_transaction_id = (
-                        provider_payload.get("financialTransactionId")
-                        or transaction.provider_transaction_id
+                if transaction.provider == "MTN_MOMO":
+                    provider_payload = get_collection_status(transaction.reference_id)
+                    provider_status = provider_payload.get("status")
+                elif transaction.provider == "LANARI_PAY":
+                    provider_payload = get_payment_status(
+                        reference_id=transaction.reference_id,
+                        external_id=transaction.external_id,
                     )
-                    transaction.save(
-                        update_fields=[
-                            "provider_payload",
-                            "provider_status",
-                            "status",
-                            "failure_reason",
-                            "paid_at",
-                            "provider_transaction_id",
-                            "updated_at",
-                        ]
-                    )
-                    _apply_successful_subscription_payment(transaction, source="status_poll")
-                elif normalized == "FAILED":
-                    transaction.status = "FAILED"
-                    transaction.failure_reason = (
-                        provider_payload.get("reason")
-                        or provider_payload.get("reasonCode")
-                        or "Payment failed"
+                    provider_status = (
+                        provider_payload.get("status")
+                        or provider_payload.get("payment_status")
+                        or provider_payload.get("state")
                     )
                     transaction.provider_transaction_id = (
-                        provider_payload.get("financialTransactionId")
+                        provider_payload.get("providerTransactionId")
+                        or provider_payload.get("transaction_id")
+                        or provider_payload.get("id")
                         or transaction.provider_transaction_id
                     )
-                    transaction.save(
-                        update_fields=[
-                            "provider_payload",
-                            "provider_status",
-                            "status",
-                            "failure_reason",
-                            "provider_transaction_id",
-                            "updated_at",
-                        ]
-                    )
-                else:
-                    transaction.save(update_fields=["provider_payload", "provider_status", "updated_at"])
-            except MtnMomoError:
+
+                if provider_payload is not None:
+                    normalized = _normalize_provider_status(provider_status)
+                    transaction.provider_payload = provider_payload
+                    transaction.provider_status = provider_status
+
+                    if normalized == "SUCCESS":
+                        transaction.status = "SUCCESS"
+                        transaction.failure_reason = None
+                        transaction.paid_at = transaction.paid_at or timezone.now()
+                        transaction.provider_transaction_id = (
+                            provider_payload.get("financialTransactionId")
+                            or transaction.provider_transaction_id
+                        )
+                        transaction.save(
+                            update_fields=[
+                                "provider_payload",
+                                "provider_status",
+                                "status",
+                                "failure_reason",
+                                "paid_at",
+                                "provider_transaction_id",
+                                "updated_at",
+                            ]
+                        )
+                        _apply_successful_subscription_payment(transaction, source="status_poll")
+                    elif normalized == "FAILED":
+                        transaction.status = "FAILED"
+                        transaction.failure_reason = (
+                            provider_payload.get("reason")
+                            or provider_payload.get("reasonCode")
+                            or provider_payload.get("message")
+                            or "Payment failed"
+                        )
+                        transaction.provider_transaction_id = (
+                            provider_payload.get("financialTransactionId")
+                            or transaction.provider_transaction_id
+                        )
+                        transaction.save(
+                            update_fields=[
+                                "provider_payload",
+                                "provider_status",
+                                "status",
+                                "failure_reason",
+                                "provider_transaction_id",
+                                "updated_at",
+                            ]
+                        )
+                    else:
+                        transaction.save(
+                            update_fields=[
+                                "provider_payload",
+                                "provider_status",
+                                "provider_transaction_id",
+                                "updated_at",
+                            ]
+                        )
+            except (MtnMomoError, LanariPayError):
                 # Keep transaction pending if provider status cannot be fetched.
                 pass
 

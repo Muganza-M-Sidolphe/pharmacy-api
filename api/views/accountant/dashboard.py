@@ -74,7 +74,12 @@ class AccountantDashboardPaymentsView(APIView):
     def _get_pending_partial_payments(self, tenant_id):
         """Get pending partial payments"""
         sales = Sale.objects.filter(
-            tenant_id=tenant_id, status="APPROVED", payment_option="PARTIAL", due_amount__gt=0
+            tenant_id=tenant_id,
+            status="APPROVED",
+            payment_option="PARTIAL",
+            due_amount__gt=0,
+            owner_approval_status="APPROVED",
+            pharmacist_approval_status="APPROVED",
         ).order_by('-created_at')[:10]
 
         total_due = sales.aggregate(Sum('due_amount'))['due_amount__sum'] or Decimal('0')
@@ -167,9 +172,13 @@ class AccountantDashboardPaymentsView(APIView):
 
     def _get_partial_payment_requests(self, tenant_id):
         """Get partial payment requests"""
-        # Get all partial payment sales
+        # Get accountant-stage partial payment sales (after owner + pharmacist approvals)
         partial_sales = Sale.objects.filter(
-            tenant_id=tenant_id, payment_option="PARTIAL", due_amount__gt=0
+            tenant_id=tenant_id,
+            payment_option="PARTIAL",
+            due_amount__gt=0,
+            owner_approval_status="APPROVED",
+            pharmacist_approval_status="APPROVED",
         )
 
         # Categorize by status
@@ -209,7 +218,12 @@ class AccountantDashboardPaymentsView(APIView):
 
         # Pending partial payments
         pending_partial = Sale.objects.filter(
-            tenant_id=tenant_id, payment_option="PARTIAL", due_amount__gt=0, status__in=["PENDING", "APPROVED"]
+            tenant_id=tenant_id,
+            payment_option="PARTIAL",
+            due_amount__gt=0,
+            status__in=["PENDING", "APPROVED"],
+            owner_approval_status="APPROVED",
+            pharmacist_approval_status="APPROVED",
         ).count()
 
         # Overdue payments
