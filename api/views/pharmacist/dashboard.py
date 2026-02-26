@@ -5,8 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
 from datetime import datetime, date, timedelta
 from decimal import Decimal
-from django.db.models import Q, Sum, Count, F
-from django.db.models.functions import TruncDate
+from django.db.models import Q, Sum
 from drf_spectacular.utils import extend_schema
 from api.models import Sale, SaleItem, UserTenant, Medicine, StockBatch
 from api.serializers import (
@@ -54,12 +53,14 @@ class PharmacistDashboardSummaryView(APIView):
             pharmacist_approved_at__date=today
         ).count()
 
-        # Partial Payments - Invoices with partial payment pending completion
+        # Partial payments currently pending pharmacist action
         partial_payments = Sale.objects.filter(
             tenant_id=tenant_id,
             payment_option="PARTIAL",
-            pharmacist_approval_status="APPROVED",
-            owner_approval_status__in=["PENDING", None]
+            owner_approval_status="APPROVED",
+            pharmacist_approval_status__in=["PENDING", None],
+            due_amount__gt=0,
+            status="APPROVED",
         ).count()
 
         # Total Processed - Sum of approved payment amounts (completed invoices)
@@ -70,10 +71,13 @@ class PharmacistDashboardSummaryView(APIView):
         ).aggregate(Sum("paid_amount"))["paid_amount__sum"] or Decimal("0")
 
         # Quick Stats
-        # Low Stock - Medicines with quantity < 10
+        # Low Stock - medicines with total remaining stock across batches < 10.
         low_stock = Medicine.objects.filter(
             tenant_id=tenant_id,
-            quantity_in_stock__lt=10
+        ).annotate(
+            total_stock=Sum("batches__quantity")
+        ).filter(
+            Q(total_stock__lt=10) | Q(total_stock__isnull=True)
         ).count()
 
         # Expiring Soon - StockBatches expiring within 30 days
@@ -84,12 +88,14 @@ class PharmacistDashboardSummaryView(APIView):
             expiry_date__gte=date.today()
         ).count()
 
-        # Pending Approvals - Partial invoices awaiting owner approval after pharmacist approved
+        # Pending accountant stage - partial invoices approved by pharmacist.
         pending_approvals = Sale.objects.filter(
             tenant_id=tenant_id,
             payment_option="PARTIAL",
             pharmacist_approval_status="APPROVED",
-            owner_approval_status__in=["PENDING", None]
+            owner_approval_status="APPROVED",
+            due_amount__gt=0,
+            status="APPROVED",
         ).count()
 
         return Response({
@@ -136,11 +142,10 @@ class PharmacistPendingInvoicesView(APIView):
 
         results = []
         for invoice in pending_invoices:
-            customer = invoice.customer
             results.append({
                 "invoiceId": str(invoice.id),
                 "invoiceNumber": invoice.invoice_number,
-                "customerName": customer.name if customer else "",
+                "customerName": invoice.customer_name or "",
                 "totalAmount": str(invoice.total_amount),
                 "invoiceDate": invoice.created_at,
                 "status": invoice.status,
@@ -185,11 +190,10 @@ class PharmacistRecentApprovalsView(APIView):
 
         results = []
         for invoice in recent_approvals:
-            customer = invoice.customer
             results.append({
                 "invoiceId": str(invoice.id),
                 "invoiceNumber": invoice.invoice_number,
-                "customerName": customer.name if customer else "",
+                "customerName": invoice.customer_name or "",
                 "totalAmount": str(invoice.total_amount),
                 "approvedAt": invoice.pharmacist_approved_at,
                 "approvalStatus": invoice.pharmacist_approval_status,
