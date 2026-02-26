@@ -151,7 +151,7 @@ class CashierAvailableMedicinesView(APIView):
         qs = Medicine.objects.filter(tenant_id=tenant_id)
         
         if query:
-            qs = qs.filter(brand_name__icontains=query) | qs.filter(generic_name__icontains=query)
+            qs = qs.filter(Q(brand_name__icontains=query) | Q(generic_name__icontains=query))
 
         qs = qs.prefetch_related('batches').order_by('-created_at')
 
@@ -163,8 +163,12 @@ class CashierAvailableMedicinesView(APIView):
             batches = StockBatchSerializer(medicine.batches.all(), many=True).data
             total_qty = sum(batch['quantity'] for batch in batches)
             avg_price = Decimal('0.00')
-            if batches:
-                avg_price = sum(Decimal(b['selling_price']) * b['quantity'] for b in batches) / sum(b['quantity'] for b in batches)
+            if batches and total_qty > 0:
+                weighted_total = sum(
+                    Decimal(b.get('sellingPrice') or b.get('selling_price') or '0') * b.get('quantity', 0)
+                    for b in batches
+                )
+                avg_price = weighted_total / total_qty
             
             medicines_data.append({
                 'id': str(medicine.id),
