@@ -43,6 +43,9 @@ PRICING_FAQS = [
 
 
 def _tenant_from_request(request):
+    if not getattr(request.user, "is_authenticated", False):
+        return None
+
     tenant_id = request.query_params.get("tenantId") or request.data.get("tenantId")
     if not tenant_id:
         token = getattr(request, "auth", None)
@@ -742,7 +745,15 @@ class SubscriptionPaymentView(APIView):
                 transaction.failure_reason = str(exc)
                 transaction.save(update_fields=["status", "failure_reason", "updated_at"])
                 return Response(
-                    {"success": False, "message": str(exc)},
+                    {
+                        "success": False,
+                        "message": str(exc),
+                        "data": {
+                            "transactionId": str(transaction.id),
+                            "referenceId": transaction.reference_id,
+                            "status": transaction.status,
+                        },
+                    },
                     status=status.HTTP_502_BAD_GATEWAY,
                 )
 
@@ -830,7 +841,16 @@ class SubscriptionPaymentView(APIView):
                 transaction.failure_reason = str(exc)
                 transaction.save(update_fields=["status", "failure_reason", "updated_at"])
                 return Response(
-                    {"success": False, "message": str(exc)},
+                    {
+                        "success": False,
+                        "message": str(exc),
+                        "data": {
+                            "transactionId": str(transaction.id),
+                            "referenceId": transaction.reference_id,
+                            "externalId": transaction.external_id,
+                            "status": transaction.status,
+                        },
+                    },
                     status=status.HTTP_502_BAD_GATEWAY,
                 )
 

@@ -7,7 +7,7 @@ from decimal import Decimal
 from django.db.models import Q, Sum, Count, F, DecimalField
 from django.db.models.functions import TruncDate, TruncHour
 from drf_spectacular.utils import extend_schema
-from api.models import Sale, UserTenant, Medicine, StockBatch, Expense
+from api.models import Expense, Medicine, Sale, SaleItem, Tenant, UserTenant
 from api.serializers import (
     AnalyticsDashboardSerializer,
     AnalyticsKPISerializer,
@@ -42,6 +42,8 @@ class AccountantAnalyticsDashboardView(APIView):
             UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
         except UserTenant.DoesNotExist:
             return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        tenant = Tenant.objects.only("id", "currency").filter(id=tenant_id).first()
+        currency = (tenant.currency if tenant else "USD")
 
         end_date = datetime.now().date()
         start_date = end_date - timedelta(days=days)
@@ -79,9 +81,9 @@ class AccountantAnalyticsDashboardView(APIView):
         }
 
         # Get trends analysis
-        daily_trend = self._get_daily_revenue_trend(tenant_id, start_date, end_date)
+        daily_trend = self._get_daily_revenue_trend(tenant_id, start_date, end_date, currency)
         hourly_pattern = self._get_hourly_sales_pattern(tenant_id, start_date, end_date)
-        revenue_vs_transactions = self._get_revenue_vs_transactions(tenant_id, start_date, end_date)
+        revenue_vs_transactions = self._get_revenue_vs_transactions(tenant_id, start_date, end_date, currency)
 
         trends_analysis = {
             "dailyRevenueTrend": daily_trend,
@@ -90,10 +92,10 @@ class AccountantAnalyticsDashboardView(APIView):
         }
 
         # Get forecasts
-        forecasts = self._get_forecasts(tenant_id, current_sales, days)
+        forecasts = self._get_forecasts(tenant_id, current_sales, days, currency)
 
         # Get business insights
-        insights = self._get_business_insights(tenant_id, current_sales, current_revenue, unique_customers)
+        insights = self._get_business_insights(tenant_id, current_sales, current_revenue, unique_customers, currency)
 
         dashboard_data = {
             "kpis": kpis,
@@ -105,7 +107,7 @@ class AccountantAnalyticsDashboardView(APIView):
         serializer = AnalyticsDashboardSerializer(dashboard_data)
         return Response(serializer.data)
 
-    def _get_daily_revenue_trend(self, tenant_id, start_date, end_date):
+    def _get_daily_revenue_trend(self, tenant_id, start_date, end_date, currency):
         """Calculate daily revenue trend"""
         daily_data = (
             Sale.objects.filter(
@@ -133,7 +135,7 @@ class AccountantAnalyticsDashboardView(APIView):
 
         return {
             "labels": labels,
-            "datasets": [{"label": "Revenue (RWF)", "data": revenue_data, "borderColor": "#10B981", "fill": False}],
+            "datasets": [{"label": f"Revenue ({currency})", "data": revenue_data, "borderColor": "#10B981", "fill": False}],
             "items": items,
         }
 
@@ -169,7 +171,7 @@ class AccountantAnalyticsDashboardView(APIView):
             "items": items,
         }
 
-    def _get_revenue_vs_transactions(self, tenant_id, start_date, end_date):
+    def _get_revenue_vs_transactions(self, tenant_id, start_date, end_date, currency):
         """Calculate revenue vs transactions"""
         daily_data = (
             Sale.objects.filter(
@@ -200,13 +202,13 @@ class AccountantAnalyticsDashboardView(APIView):
         return {
             "labels": labels,
             "datasets": [
-                {"label": "Revenue (RWF)", "data": revenue_data, "backgroundColor": "#F59E0B", "type": "bar"},
+                {"label": f"Revenue ({currency})", "data": revenue_data, "backgroundColor": "#F59E0B", "type": "bar"},
                 {"label": "Transactions", "data": transaction_data, "borderColor": "#3B82F6", "type": "line"},
             ],
             "items": items,
         }
 
-    def _get_forecasts(self, tenant_id, sales_queryset, days):
+    def _get_forecasts(self, tenant_id, sales_queryset, days, currency):
         """Generate forecasts based on historical data"""
         # Simple moving average forecast
         daily_revenue = sales_queryset.annotate(date=TruncDate('created_at')).values('date').annotate(
@@ -241,11 +243,11 @@ class AccountantAnalyticsDashboardView(APIView):
 
         return {
             "labels": labels,
-            "datasets": [{"label": "Forecasted Revenue (RWF)", "data": forecast_data, "borderColor": "#8B5CF6", "borderDash": [5, 5]}],
+            "datasets": [{"label": f"Forecasted Revenue ({currency})", "data": forecast_data, "borderColor": "#8B5CF6", "borderDash": [5, 5]}],
             "items": forecast_items,
         }
 
-    def _get_business_insights(self, tenant_id, sales_queryset, revenue, unique_customers):
+    def _get_business_insights(self, tenant_id, sales_queryset, revenue, unique_customers, currency):
         """Generate business insights"""
         insights_list = []
 
@@ -253,8 +255,8 @@ class AccountantAnalyticsDashboardView(APIView):
         avg_revenue = (revenue / sales_queryset.count()) if sales_queryset.count() > 0 else Decimal('0')
         insights_list.append({
             "title": "Revenue Performance",
-            "description": f"Total revenue of RWF {revenue:,} from {sales_queryset.count()} transactions",
-            "metric": f"RWF {revenue:,}",
+            "description": f"Total revenue of {currency} {revenue:,} from {sales_queryset.count()} transactions",
+            "metric": f"{currency} {revenue:,}",
             "trend": "up" if revenue > 0 else "stable",
             "recommendation": "Continue current sales strategies" if revenue > 0 else "Analyze sales patterns",
         })

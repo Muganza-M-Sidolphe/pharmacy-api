@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from django.db.models import Q, Sum, Count, F
 from drf_spectacular.utils import extend_schema
-from api.models import Sale, SaleItem, UserTenant, Notification, Medicine, StockBatch
+from api.models import Medicine, Notification, Sale, SaleItem, StockBatch, Tenant, UserTenant
 from api.serializers import (
     PharmacistPartialPaymentListSerializer,
     PharmacistPartialPaymentSummarySerializer,
@@ -69,6 +69,7 @@ class PharmacistPartialPaymentsListView(APIView):
                 "totalAmount": str(invoice.total_amount),
                 "paidAmount": str(invoice.paid_amount),
                 "dueAmount": str(invoice.due_amount),
+                "currency": invoice.currency,
                 "paymentMethod": invoice.payment_method or "",
                 "paymentOption": invoice.payment_option,
                 "invoiceDate": invoice.created_at,
@@ -76,10 +77,12 @@ class PharmacistPartialPaymentsListView(APIView):
                 "createdAt": invoice.created_at,
             })
 
+        tenant = Tenant.objects.only("id", "currency").filter(id=tenant_id).first()
         response_data = {
             "count": total_count,
             "next": f"/api/pharmacist/partial-payments/?tenantId={tenant_id}&page={page + 1}&pageSize={page_size}" if end_idx < total_count else None,
             "previous": f"/api/pharmacist/partial-payments/?tenantId={tenant_id}&page={page - 1}&pageSize={page_size}" if page > 1 else None,
+            "currency": (tenant.currency if tenant else "USD"),
             "results": results,
         }
 
@@ -151,6 +154,7 @@ class PharmacistPartialPaymentSummaryView(APIView):
         selected_count = selected_invoices.count()
         selected_total = selected_invoices.aggregate(Sum("due_amount"))["due_amount__sum"] or Decimal("0")
 
+        tenant = Tenant.objects.only("id", "currency").filter(id=tenant_id).first()
         return Response({
             "partialPayments": partial_count,
             "totalPartialDue": str(total_partial_due),
@@ -158,6 +162,7 @@ class PharmacistPartialPaymentSummaryView(APIView):
             "totalPaidAmount": str(total_paid),
             "selectedForProcessing": selected_count,
             "selectedForProcessingTotal": str(selected_total),
+            "currency": (tenant.currency if tenant else "USD"),
         }, status=status.HTTP_200_OK)
 
 

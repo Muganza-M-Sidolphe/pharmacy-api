@@ -7,7 +7,7 @@ from django.utils import timezone
 from datetime import datetime
 from decimal import Decimal
 
-from ...models import UserTenant, Sale, Notification
+from ...models import Notification, Sale, Tenant, UserTenant
 from ...serializers import SaleSerializer
 from drf_spectacular.utils import extend_schema
 from django.db.models import Q
@@ -101,8 +101,10 @@ class AccountantInvoicesListView(APIView):
         page_obj = paginator.get_page(page)
         
         data = SaleSerializer(page_obj, many=True).data
+        tenant = Tenant.objects.only("id", "currency").filter(id=tenant_id).first()
         return Response({
             'results': data,
+            'currency': (tenant.currency if tenant else "USD"),
             'pagination': {
                 'page': page,
                 'page_size': page_size,
@@ -400,6 +402,7 @@ class AccountantInvoicesSummaryView(APIView):
             due_amount__gt=0
         ).count()
         fully_paid_invoices = invoices.filter(due_amount=0).count()
+        tenant = Tenant.objects.only("id", "currency").filter(id=tenant_id).first()
 
         return Response({
             'totalInvoices': total_invoices,
@@ -408,7 +411,8 @@ class AccountantInvoicesSummaryView(APIView):
             'pendingAmount': str(pending_amount),
             'unpaidInvoices': unpaid_invoices,
             'partialPaymentInvoices': partial_payment_invoices,
-            'fullyPaidInvoices': fully_paid_invoices
+            'fullyPaidInvoices': fully_paid_invoices,
+            'currency': (tenant.currency if tenant else "USD"),
         })
 
 
@@ -469,6 +473,7 @@ class AccountantInvoicesReportView(APIView):
 
         total_collected = sum(s.paid_amount for s in qs)
         total_outstanding = sum(s.due_amount for s in qs)
+        tenant = Tenant.objects.only("id", "currency").filter(id=tenant_id).first()
 
         return Response({
             'startDate': start_date or 'all',
@@ -476,6 +481,7 @@ class AccountantInvoicesReportView(APIView):
             'totalInvoices': qs.count(),
             'totalCollected': str(total_collected),
             'totalOutstanding': str(total_outstanding),
+            'currency': (tenant.currency if tenant else "USD"),
             'byPaymentMethod': {
                 method: {
                     'count': data['count'],
