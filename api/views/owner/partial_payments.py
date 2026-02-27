@@ -8,7 +8,7 @@ from decimal import Decimal
 from django.db.models import Q, Sum, Count
 from django.contrib.auth import get_user_model
 from drf_spectacular.utils import extend_schema
-from api.models import Sale, UserTenant, Notification
+from api.models import Notification, Sale, Tenant, UserTenant
 from api.serializers import (
     OwnerPartialPaymentListSerializer,
     OwnerPartialPaymentSummarySerializer,
@@ -72,6 +72,7 @@ class OwnerPartialPaymentsListView(APIView):
                 "totalAmount": str(invoice.total_amount),
                 "paidAmount": str(invoice.paid_amount),
                 "dueAmount": str(invoice.due_amount),
+                "currency": invoice.currency,
                 "paymentMethod": invoice.payment_method or "",
                 "paymentOption": invoice.payment_option,
                 "invoiceDate": invoice.created_at,
@@ -79,10 +80,12 @@ class OwnerPartialPaymentsListView(APIView):
                 "createdAt": invoice.created_at,
             })
 
+        tenant = Tenant.objects.only("id", "currency").filter(id=tenant_id).first()
         response_data = {
             "count": total_count,
             "next": f"/api/owner/partial-payments/?tenantId={tenant_id}&page={page + 1}&pageSize={page_size}" if end_idx < total_count else None,
             "previous": f"/api/owner/partial-payments/?tenantId={tenant_id}&page={page - 1}&pageSize={page_size}" if page > 1 else None,
+            "currency": (tenant.currency if tenant else "USD"),
             "results": results,
         }
 
@@ -134,11 +137,13 @@ class OwnerPartialPaymentSummaryView(APIView):
         approved_count = approved_by_owner.count()
         total_approved = approved_by_owner.aggregate(Sum("total_amount"))["total_amount__sum"] or Decimal("0")
 
+        tenant = Tenant.objects.only("id", "currency").filter(id=tenant_id).first()
         return Response({
             "pendingApprovals": pending_count,
             "totalPendingDue": str(total_pending_due),
             "approvedByPharmacist": approved_count,
             "totalApprovedAmount": str(total_approved),
+            "currency": (tenant.currency if tenant else "USD"),
         }, status=status.HTTP_200_OK)
 
 

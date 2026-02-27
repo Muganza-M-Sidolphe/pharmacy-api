@@ -178,6 +178,7 @@ class Sale(models.Model):
     
     payment_option = models.CharField(max_length=20, choices=PAYMENT_OPTION_CHOICES, default="FULL")
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES, default="CASH")
+    currency = models.CharField(max_length=10, default="USD")
     
     subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
@@ -214,6 +215,17 @@ class Sale(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     approved_at = models.DateTimeField(null=True, blank=True)
     approved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='approved_sales')
+
+    def save(self, *args, **kwargs):
+        # Keep historical invoice currency stable even if tenant currency changes later.
+        if self.currency:
+            self.currency = str(self.currency).strip().upper()
+        elif self.tenant_id:
+            tenant_currency = getattr(self.tenant, "currency", None)
+            self.currency = (tenant_currency or "USD").strip().upper()
+        else:
+            self.currency = "USD"
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"Sale {self.invoice_number} - {self.customer_name or 'No customer'}"

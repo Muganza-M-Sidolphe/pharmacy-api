@@ -226,7 +226,7 @@ class SaleItemSerializer(serializers.ModelSerializer):
 class SaleSerializer(serializers.ModelSerializer):
     tenantId = serializers.UUIDField(source='tenant.id', read_only=True)
     cashierId = serializers.UUIDField(source='cashier.id', read_only=True)
-    approvedBy = serializers.UUIDField(source='approved_by.id', read_only=True, allow_null=True)
+    approvedBy = serializers.SerializerMethodField()
     approvedByName = serializers.SerializerMethodField()
     approvedByRole = serializers.SerializerMethodField()
     items = SaleItemSerializer(many=True, read_only=True)
@@ -234,7 +234,7 @@ class SaleSerializer(serializers.ModelSerializer):
     updatedAt = serializers.DateTimeField(source='updated_at', read_only=True)
     approvedAt = serializers.DateTimeField(source='approved_at', read_only=True, allow_null=True)
     paymentOption = serializers.CharField(source='payment_option')
-    paymentMethod = serializers.CharField(source='payment_method')
+    paymentMethod = serializers.SerializerMethodField()
     invoiceNumber = serializers.CharField(source='invoice_number')
     customerName = serializers.CharField(source='customer_name', allow_null=True)
     customerPhone = serializers.CharField(source='customer_phone', allow_null=True)
@@ -242,26 +242,56 @@ class SaleSerializer(serializers.ModelSerializer):
     paidAmount = serializers.DecimalField(source='paid_amount', max_digits=12, decimal_places=2)
     dueAmount = serializers.DecimalField(source='due_amount', max_digits=12, decimal_places=2)
     totalAmount = serializers.DecimalField(source='total_amount', max_digits=12, decimal_places=2)
+    currency = serializers.CharField(read_only=True)
     status = serializers.SerializerMethodField()
 
+    def _latest_chain_approver(self, obj):
+        if (
+            obj.payment_option == 'PARTIAL'
+            and obj.owner_approval_status == 'APPROVED'
+            and obj.pharmacist_approval_status == 'APPROVED'
+            and obj.pharmacist_approved_by
+        ):
+            return obj.pharmacist_approved_by
+        if obj.payment_option == 'PARTIAL' and obj.owner_approval_status == 'APPROVED' and obj.owner_approved_by:
+            return obj.owner_approved_by
+        return obj.approved_by
+
+    def get_approvedBy(self, obj):
+        approver = self._latest_chain_approver(obj)
+        return str(approver.id) if approver else None
+
     def get_approvedByName(self, obj):
-        if not obj.approved_by:
+        approver = self._latest_chain_approver(obj)
+        if not approver:
             return None
-        return obj.approved_by.name
+        return approver.name
 
     def get_approvedByRole(self, obj):
-        if not obj.approved_by:
+        approver = self._latest_chain_approver(obj)
+        if not approver:
             return None
-        if obj.approved_by.is_super_admin:
+        if approver.is_super_admin:
             return "SUPER_ADMIN"
         relation = UserTenant.objects.filter(
-            user=obj.approved_by,
+            user=approver,
             tenant=obj.tenant
         ).first()
         return relation.role if relation else None
 
+    def get_paymentMethod(self, obj):
+        value = (obj.payment_method or '').strip()
+        return value if value else 'UNKNOWN'
+
     def get_status(self, obj):
-        # Response label for payment progress.
+        # Response label for payment progress and chain stage.
+        if (
+            obj.payment_option == 'PARTIAL'
+            and obj.due_amount > 0
+            and obj.owner_approval_status == 'APPROVED'
+            and obj.pharmacist_approval_status == 'APPROVED'
+        ):
+            return 'PARTIAL'
         if obj.status in ['APPROVED', 'COMPLETED'] and obj.due_amount <= 0:
             return 'PAID'
         if obj.status == 'APPROVED' and obj.due_amount > 0:
@@ -272,7 +302,7 @@ class SaleSerializer(serializers.ModelSerializer):
         model = Sale
         fields = ['id', 'tenantId', 'cashierId', 'invoiceNumber', 'customerName', 'customerPhone', 'notes', 'status', 
                   'paymentOption', 'paymentMethod', 'subtotal', 'discountAmount', 'paidAmount', 'dueAmount', 
-                  'totalAmount', 'items', 'createdAt', 'updatedAt', 'approvedAt', 'approvedBy', 'approvedByName', 'approvedByRole']
+                  'totalAmount', 'currency', 'items', 'createdAt', 'updatedAt', 'approvedAt', 'approvedBy', 'approvedByName', 'approvedByRole']
         read_only_fields = ['id', 'invoiceNumber', 'status', 'createdAt', 'updatedAt', 'approvedAt', 'approvedBy']
 
 
@@ -299,6 +329,9 @@ class CreateSaleSerializer(serializers.Serializer):
         from django.db.models import F
         
         tenant_id = validated_data['tenantId']
+        tenant = Tenant.objects.only("id", "currency").filter(id=tenant_id).first()
+        if not tenant:
+            raise serializers.ValidationError({"tenantId": "Invalid tenantId"})
         cashier = self.context['request'].user
         items_data = validated_data['items']
         
@@ -313,7 +346,7 @@ class CreateSaleSerializer(serializers.Serializer):
         
         # Create sale
         sale = Sale.objects.create(
-            tenant_id=tenant_id,
+            tenant=tenant,
             cashier=cashier,
             invoice_number=invoice_num,
             customer_name=validated_data.get('customerName'),
@@ -321,6 +354,7 @@ class CreateSaleSerializer(serializers.Serializer):
             notes=validated_data.get('notes'),
             payment_option=validated_data['paymentOption'],
             payment_method=validated_data['paymentMethod'],
+            currency=tenant.currency,
             discount_amount=discount_amount,
             paid_amount=paid_amount,
             status='PENDING'
@@ -653,6 +687,7 @@ class PendingPartialPaymentSerializer(serializers.Serializer):
     totalAmount = serializers.DecimalField(max_digits=14, decimal_places=2)
     paidAmount = serializers.DecimalField(max_digits=14, decimal_places=2)
     dueAmount = serializers.DecimalField(max_digits=14, decimal_places=2)
+    currency = serializers.CharField()
     createdAt = serializers.DateTimeField()
 
 
@@ -668,6 +703,7 @@ class OverduePaymentSerializer(serializers.Serializer):
     customerName = serializers.CharField(allow_null=True)
     totalAmount = serializers.DecimalField(max_digits=14, decimal_places=2)
     dueAmount = serializers.DecimalField(max_digits=14, decimal_places=2)
+    currency = serializers.CharField()
     daysOverdue = serializers.IntegerField()
     createdAt = serializers.DateTimeField()
 
@@ -688,6 +724,7 @@ class SelectedForInvoiceSerializer(serializers.Serializer):
     invoiceNumber = serializers.CharField()
     customerName = serializers.CharField(allow_null=True)
     totalAmount = serializers.DecimalField(max_digits=14, decimal_places=2)
+    currency = serializers.CharField()
     createdAt = serializers.DateTimeField()
 
 
@@ -702,6 +739,7 @@ class PaymentRequestItemSerializer(serializers.Serializer):
     invoiceNumber = serializers.CharField()
     customerName = serializers.CharField(allow_null=True)
     requestedAmount = serializers.DecimalField(max_digits=14, decimal_places=2)
+    currency = serializers.CharField()
     status = serializers.CharField()
     createdAt = serializers.DateTimeField()
 
@@ -728,6 +766,7 @@ class AccountantDashboardPaymentsSerializer(serializers.Serializer):
     selectedForInvoice = SelectedForInvoiceListSerializer()
     partialPaymentRequests = PartialPaymentRequestsSerializer()
     quickStats = QuickStatsSerializer()
+    currency = serializers.CharField()
 
 
 # Pharmacist Invoice serializers
@@ -845,6 +884,7 @@ class PartialPaymentInvoiceSerializer(serializers.Serializer):
     totalAmount = serializers.DecimalField(max_digits=14, decimal_places=2)
     paidAmount = serializers.DecimalField(max_digits=14, decimal_places=2)
     dueAmount = serializers.DecimalField(max_digits=14, decimal_places=2)
+    currency = serializers.CharField()
     paymentMethod = serializers.CharField()
     paymentOption = serializers.CharField()
     invoiceDate = serializers.DateTimeField()
@@ -866,6 +906,7 @@ class PharmacistPartialPaymentSummarySerializer(serializers.Serializer):
     totalPaidAmount = serializers.DecimalField(max_digits=14, decimal_places=2)
     selectedForProcessing = serializers.IntegerField()
     selectedForProcessingTotal = serializers.DecimalField(max_digits=14, decimal_places=2)
+    currency = serializers.CharField()
 
 
 class PartialPaymentApprovalRequestSerializer(serializers.Serializer):
@@ -888,6 +929,7 @@ class OwnerPartialPaymentSummarySerializer(serializers.Serializer):
     totalPendingDue = serializers.DecimalField(max_digits=14, decimal_places=2)
     approvedByPharmacist = serializers.IntegerField()
     totalApprovedAmount = serializers.DecimalField(max_digits=14, decimal_places=2)
+    currency = serializers.CharField()
 
 # Pharmacist History Serializers
 

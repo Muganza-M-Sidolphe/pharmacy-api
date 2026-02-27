@@ -9,7 +9,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from ...models import Notification, Sale, UserTenant
+from ...models import Notification, Sale, Tenant, UserTenant
 
 
 class OwnerInvoicesBaseView(APIView):
@@ -43,6 +43,10 @@ class OwnerInvoicesBaseView(APIView):
         if not has_access:
             return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
         return None
+
+    def _tenant_currency(self, tenant_id):
+        tenant = Tenant.objects.only("id", "currency").filter(id=tenant_id).first()
+        return tenant.currency if tenant else "USD"
 
     def _parse_positive_int(self, value, name, default):
         raw = value if value is not None else default
@@ -206,6 +210,7 @@ class OwnerInvoicesListView(OwnerInvoicesBaseView):
                     "totalAmount": str(sale.total_amount),
                     "paidAmount": str(sale.paid_amount),
                     "dueAmount": str(sale.due_amount),
+                    "currency": sale.currency,
                     "paymentMethod": sale.payment_method,
                     "paymentOption": sale.payment_option,
                     "status": sale.status,
@@ -226,6 +231,7 @@ class OwnerInvoicesListView(OwnerInvoicesBaseView):
                 "count": total_count,
                 "next": page + 1 if end < total_count else None,
                 "previous": page - 1 if page > 1 else None,
+                "currency": self._tenant_currency(tenant_id),
                 "results": results,
             },
             status=status.HTTP_200_OK,
@@ -286,6 +292,7 @@ class OwnerInvoiceDetailView(OwnerInvoicesBaseView):
                 "paidAmount": str(sale.paid_amount),
                 "dueAmount": str(sale.due_amount),
                 "totalAmount": str(sale.total_amount),
+                "currency": sale.currency,
                 "createdAt": sale.created_at,
                 "updatedAt": sale.updated_at,
                 "cashierId": str(sale.cashier_id) if sale.cashier_id else None,
@@ -335,6 +342,7 @@ class OwnerInvoicesSummaryView(OwnerInvoicesBaseView):
                 "totalAmount": str(aggregate["totalAmount"]),
                 "paidAmount": str(aggregate["paidAmount"]),
                 "dueAmount": str(aggregate["dueAmount"]),
+                "currency": self._tenant_currency(tenant_id),
                 "paidInvoices": paid_invoices,
                 "partialInvoices": partial_invoices,
                 "unpaidInvoices": unpaid_invoices,
@@ -413,6 +421,7 @@ class OwnerInvoicesDashboardView(OwnerInvoicesBaseView):
                     "totalAmount": str(invoice.total_amount),
                     "paidAmount": str(invoice.paid_amount),
                     "dueAmount": str(invoice.due_amount),
+                    "currency": invoice.currency,
                     "items": item_names,
                     "cashierId": str(invoice.cashier_id) if invoice.cashier_id else None,
                     "cashierName": invoice.cashier.name if invoice.cashier_id and invoice.cashier else "N/A",
@@ -430,6 +439,7 @@ class OwnerInvoicesDashboardView(OwnerInvoicesBaseView):
                     "totalAmount": str(total_amount),
                     "paidAmount": str(paid_amount),
                     "dueAmount": str(due_amount),
+                    "currency": self._tenant_currency(tenant_id),
                     "paidInvoices": by_payment_state["PAID"],
                     "partialInvoices": by_payment_state["PARTIAL"],
                     "unpaidInvoices": by_payment_state["UNPAID"],

@@ -10,7 +10,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from ...models import Medicine, Sale, StockBatch, UserTenant
+from ...models import Medicine, Sale, StockBatch, Tenant, UserTenant
 
 
 LOW_STOCK_THRESHOLD = 10
@@ -101,6 +101,8 @@ class OwnerDashboardSummaryView(OwnerDashboardBaseView):
             .distinct()
             .count()
         )
+        tenant = Tenant.objects.only("id", "currency").filter(id=tenant_id).first()
+        currency = (tenant.currency if tenant else "USD")
 
         return Response(
             {
@@ -108,7 +110,7 @@ class OwnerDashboardSummaryView(OwnerDashboardBaseView):
                 "lowStockItems": low_stock_items,
                 "totalSales": str(total_sales),
                 "expiringSoon": expiring_soon,
-                "currency": request.query_params.get("currency", "RWF"),
+                "currency": currency,
             }
         )
 
@@ -218,6 +220,7 @@ class OwnerDashboardPartialInvoicesView(OwnerDashboardBaseView):
                     "totalAmount": str(sale.total_amount),
                     "paidAmount": str(sale.paid_amount),
                     "remaining": str(sale.due_amount),
+                    "currency": sale.currency,
                     "status": "Partially Paid",
                     "createdAt": sale.created_at,
                 }

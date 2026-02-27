@@ -11,6 +11,7 @@ from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from api.models import (
     Sale,
+    Tenant,
     UserTenant,
     Notification,
     PartialPaymentReminderConfig,
@@ -52,6 +53,9 @@ class AccountantDashboardPaymentsView(APIView):
         except UserTenant.DoesNotExist:
             return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
 
+        tenant = Tenant.objects.only("id", "currency").filter(id=tenant_id).first()
+        currency = (tenant.currency if tenant else "USD")
+
         pending_partial = self._get_pending_partial_payments(tenant_id)
         overdue = self._get_overdue_payments(tenant_id)
         total_paid = self._get_total_paid_amount(tenant_id)
@@ -66,6 +70,7 @@ class AccountantDashboardPaymentsView(APIView):
             "selectedForInvoice": selected_for_invoice,
             "partialPaymentRequests": payment_requests,
             "quickStats": quick_stats,
+            "currency": currency,
         }
 
         serializer = AccountantDashboardPaymentsSerializer(dashboard_data)
@@ -94,6 +99,7 @@ class AccountantDashboardPaymentsView(APIView):
                 'totalAmount': sale.total_amount,
                 'paidAmount': sale.paid_amount,
                 'dueAmount': sale.due_amount,
+                'currency': sale.currency,
                 'createdAt': sale.created_at,
             })
 
@@ -120,6 +126,7 @@ class AccountantDashboardPaymentsView(APIView):
                 'customerName': sale.customer_name,
                 'totalAmount': sale.total_amount,
                 'dueAmount': sale.due_amount,
+                'currency': sale.currency,
                 'daysOverdue': days_overdue,
                 'createdAt': sale.created_at,
             })
@@ -161,6 +168,7 @@ class AccountantDashboardPaymentsView(APIView):
                 'invoiceNumber': sale.invoice_number,
                 'customerName': sale.customer_name,
                 'totalAmount': sale.total_amount,
+                'currency': sale.currency,
                 'createdAt': sale.created_at,
             })
 
@@ -192,6 +200,7 @@ class AccountantDashboardPaymentsView(APIView):
                 'invoiceNumber': sale.invoice_number,
                 'customerName': sale.customer_name,
                 'requestedAmount': sale.due_amount,
+                'currency': sale.currency,
                 'status': sale.status,
                 'createdAt': sale.created_at,
             })
