@@ -395,6 +395,8 @@ class PharmacistPaymentApprovalsListView(APIView):
                 'invoiceNumber': sale.invoice_number,
                 'customerName': sale.customer_name,
                 'requestedAmount': sale.due_amount,
+                'paidAmount': sale.paid_amount,
+                'dueAmount': sale.due_amount,
                 'paymentMethod': sale.payment_method,
                 'status': 'PENDING' if sale.due_amount > 0 else 'APPROVED',
                 'requestedAt': sale.approved_at or sale.created_at,

@@ -18,6 +18,17 @@ from .views.pharmacist.invoices import PharmacistInvoicesListView, PharmacistInv
 from .views.pharmacist.partial_payments import PharmacistPartialPaymentsListView, PharmacistPartialPaymentSummaryView, PharmacistApprovePartialPaymentView, PharmacistRejectPartialPaymentView
 from .views.pharmacist.history import PharmacistApprovalHistoryListView, PharmacistHistorySummaryView, PharmacistHistoryExportView, PharmacistHistorySearchView
 from .views.pharmacist.dashboard import PharmacistDashboardSummaryView, PharmacistPendingInvoicesView, PharmacistRecentApprovalsView
+from .views.role_notifications import (
+    StorekeeperRecentNotificationsView,
+    StorekeeperMarkNotificationAsReadView,
+    StorekeeperMarkAllNotificationsAsReadView,
+    CashierRecentNotificationsView,
+    CashierMarkNotificationAsReadView,
+    CashierMarkAllNotificationsAsReadView,
+    PharmacistRecentNotificationsView,
+    PharmacistMarkNotificationAsReadView,
+    PharmacistMarkAllNotificationsAsReadView,
+)
 from .views.owner.partial_payments import OwnerPartialPaymentsListView, OwnerPartialPaymentSummaryView, OwnerApprovePartialPaymentView, OwnerRejectPartialPaymentView
 from .views.pricing import PricingPlansView, PricingCompareView, PricingFAQView, PricingCalculateUpgradeView, PricingRecommendationView, SubscriptionPlansView, SubscriptionPlanDetailView, SubscriptionHistoryView, SubscriptionUpgradeView, SubscriptionDowngradeView, SubscriptionCancelView, SubscriptionTrialRenewView, SubscriptionTrialStatusView, SubscriptionLimitsView, SubscriptionFeatureView, SubscriptionUsageView, SubscriptionPaymentView, SubscriptionPaymentStatusView, SubscriptionMtnWebhookView, SubscriptionInvoicesView, SubscriptionInvoiceDownloadView
 from .views.retail import RetailMedicinesView, RetailSalesView, RetailInsuranceSalesView, RetailExpensesView, RetailStockView, RetailExpiringMedicinesView, RetailLowStockView, RetailDashboardView, RetailReportsView, RetailExpenseDeleteView
@@ -128,6 +139,9 @@ urlpatterns = [
     path("storekeeper/expiry-alerts/summary/", ExpiryAlertsSummaryView.as_view(), name="storekeeper-expiry-alerts-summary"),
     path("storekeeper/expiry-alerts/critical/", ExpiryAlertsCriticalView.as_view(), name="storekeeper-expiry-alerts-critical"),
     path("storekeeper/expiry-alerts/expired/", ExpiredBatchesView.as_view(), name="storekeeper-expired-batches"),
+    path("storekeeper/notifications/", StorekeeperRecentNotificationsView.as_view(), name="storekeeper-notifications"),
+    path("storekeeper/notifications/<uuid:notification_id>/read/", StorekeeperMarkNotificationAsReadView.as_view(), name="storekeeper-mark-notification-read"),
+    path("storekeeper/notifications/read-all/", StorekeeperMarkAllNotificationsAsReadView.as_view(), name="storekeeper-mark-all-notifications-read"),
     path("cashier/dashboard/", CashierDashboardSummaryView.as_view(), name="cashier-dashboard"),
     path("cashier/stock-alerts/", CashierStockAlertsView.as_view(), name="cashier-stock-alerts"),
     path("cashier/medicines/", CashierAvailableMedicinesView.as_view(), name="cashier-medicines"),
@@ -146,6 +160,9 @@ urlpatterns = [
     path("cashier/history/completed/", CashierCompletedSalesView.as_view(), name="cashier-history-completed"),
     path("cashier/history/partial-payments/", CashierPartialPaymentSalesView.as_view(), name="cashier-history-partial-payments"),
     path("cashier/history/stock-requests/", CashierStockRequestsView.as_view(), name="cashier-history-stock-requests"),
+    path("cashier/notifications/", CashierRecentNotificationsView.as_view(), name="cashier-notifications"),
+    path("cashier/notifications/<uuid:notification_id>/read/", CashierMarkNotificationAsReadView.as_view(), name="cashier-mark-notification-read"),
+    path("cashier/notifications/read-all/", CashierMarkAllNotificationsAsReadView.as_view(), name="cashier-mark-all-notifications-read"),
     path("accountant/invoices/", AccountantInvoicesListView.as_view(), name="accountant-invoices"),
     path("accountant/invoices/<uuid:sale_id>/", AccountantInvoiceDetailView.as_view(), name="accountant-invoice-detail"),
     path("accountant/invoices/<uuid:sale_id>/approve/", AccountantApproveInvoiceView.as_view(), name="accountant-approve-invoice"),
@@ -205,6 +222,9 @@ urlpatterns = [
     path("pharmacist/approval-history/summary/", PharmacistHistorySummaryView.as_view(), name="pharmacist-approval-history-summary"),
     path("pharmacist/approval-history/export/", PharmacistHistoryExportView.as_view(), name="pharmacist-approval-history-export"),
     path("pharmacist/approval-history/search/", PharmacistHistorySearchView.as_view(), name="pharmacist-approval-history-search"),
+    path("pharmacist/notifications/", PharmacistRecentNotificationsView.as_view(), name="pharmacist-notifications"),
+    path("pharmacist/notifications/<uuid:notification_id>/read/", PharmacistMarkNotificationAsReadView.as_view(), name="pharmacist-mark-notification-read"),
+    path("pharmacist/notifications/read-all/", PharmacistMarkAllNotificationsAsReadView.as_view(), name="pharmacist-mark-all-notifications-read"),
     path("owner/partial-payments/", OwnerPartialPaymentsListView.as_view(), name="owner-partial-payments"),
     path("owner/partial-payments/summary/", OwnerPartialPaymentSummaryView.as_view(), name="owner-partial-payments-summary"),
     path("owner/partial-payments/<uuid:invoice_id>/approve/", OwnerApprovePartialPaymentView.as_view(), name="owner-partial-payments-approve"),
