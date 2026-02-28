@@ -381,12 +381,14 @@ class AccountantAnalyticsTrendsView(APIView):
 
         end_date = datetime.now().date()
         start_date = end_date - timedelta(days=days)
+        tenant = Tenant.objects.only("id", "currency").filter(id=tenant_id).first()
+        currency = (tenant.currency if tenant else "USD")
 
         dashboard_view = AccountantAnalyticsDashboardView()
 
-        daily_trend = dashboard_view._get_daily_revenue_trend(tenant_id, start_date, end_date)
+        daily_trend = dashboard_view._get_daily_revenue_trend(tenant_id, start_date, end_date, currency)
         hourly_pattern = dashboard_view._get_hourly_sales_pattern(tenant_id, start_date, end_date)
-        revenue_vs_transactions = dashboard_view._get_revenue_vs_transactions(tenant_id, start_date, end_date)
+        revenue_vs_transactions = dashboard_view._get_revenue_vs_transactions(tenant_id, start_date, end_date, currency)
 
         trends_data = {
             "dailyRevenueTrend": daily_trend,
@@ -423,13 +425,15 @@ class AccountantAnalyticsForecastsView(APIView):
 
         end_date = datetime.now().date()
         start_date = end_date - timedelta(days=days)
+        tenant = Tenant.objects.only("id", "currency").filter(id=tenant_id).first()
+        currency = (tenant.currency if tenant else "USD")
 
         sales = Sale.objects.filter(
             tenant_id=tenant_id, status="COMPLETED", created_at__date__gte=start_date, created_at__date__lte=end_date
         )
 
         dashboard_view = AccountantAnalyticsDashboardView()
-        forecasts = dashboard_view._get_forecasts(tenant_id, sales, days)
+        forecasts = dashboard_view._get_forecasts(tenant_id, sales, days, currency)
 
         serializer = ForecastsSerializer(forecasts)
         return Response(serializer.data)
@@ -466,9 +470,11 @@ class AccountantAnalyticsInsightsView(APIView):
         )
         revenue = sales.aggregate(Sum('total_amount'))['total_amount__sum'] or Decimal('0')
         unique_customers = sales.values('customer_phone').distinct().count()
+        tenant = Tenant.objects.only("id", "currency").filter(id=tenant_id).first()
+        currency = (tenant.currency if tenant else "USD")
 
         dashboard_view = AccountantAnalyticsDashboardView()
-        insights = dashboard_view._get_business_insights(tenant_id, sales, revenue, unique_customers)
+        insights = dashboard_view._get_business_insights(tenant_id, sales, revenue, unique_customers, currency)
 
         serializer = BusinessInsightsSerializer(insights)
         return Response(serializer.data)

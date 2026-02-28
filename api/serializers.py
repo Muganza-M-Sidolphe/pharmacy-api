@@ -847,6 +847,8 @@ class PharmacistPaymentApprovalItemSerializer(serializers.Serializer):
     invoiceNumber = serializers.CharField()
     customerName = serializers.CharField(allow_null=True)
     requestedAmount = serializers.DecimalField(max_digits=14, decimal_places=2)
+    paidAmount = serializers.DecimalField(max_digits=14, decimal_places=2)
+    dueAmount = serializers.DecimalField(max_digits=14, decimal_places=2)
     paymentMethod = serializers.CharField()
     status = serializers.CharField()
     requestedAt = serializers.DateTimeField()
