@@ -8,13 +8,29 @@ from decimal import Decimal
 
 from ...models import UserTenant, Sale, Expense, Notification
 from ...serializers import AccountantDashboardSummarySerializer, NotificationItemSerializer, ApprovedSalesListSerializer
+from ...utils.subscription_access import authorize_tenant_access
 from drf_spectacular.utils import extend_schema
 from django.db.models import Q
 
 
-class AccountantDashboardSummaryView(APIView):
-    """Get accountant dashboard summary with totals and counts."""
+class AccountantHistoryBaseView(APIView):
     permission_classes = [IsAuthenticated]
+    required_subscription_feature = "sales_management"
+
+    def _authorize(self, request):
+        tenant_id = request.query_params.get('tenantId')
+        tenant, error_message, error_status = authorize_tenant_access(
+            request,
+            tenant_id,
+            required_feature=self.required_subscription_feature,
+        )
+        if error_message:
+            return None, tenant_id, Response({"detail": error_message}, status=error_status)
+        return tenant, tenant_id, None
+
+
+class AccountantDashboardSummaryView(AccountantHistoryBaseView):
+    """Get accountant dashboard summary with totals and counts."""
 
     @extend_schema(
         description="Get dashboard summary: total sales, revenue, expenses, notifications",
@@ -22,12 +38,9 @@ class AccountantDashboardSummaryView(APIView):
         tags=["accountant"]
     )
     def get(self, request):
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         sales_qs = Sale.objects.filter(tenant_id=tenant_id, status__in=['APPROVED', 'COMPLETED'])
         expenses_qs = Expense.objects.filter(tenant_id=tenant_id)
@@ -54,21 +67,17 @@ class AccountantDashboardSummaryView(APIView):
         })
 
 
-class AccountantRecentNotificationsView(APIView):
+class AccountantRecentNotificationsView(AccountantHistoryBaseView):
     """Get recent notifications for accountant."""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Get recent notifications",
         tags=["accountant"]
     )
     def get(self, request):
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         limit = int(request.query_params.get('limit', 10))
         notifications = Notification.objects.filter(tenant_id=tenant_id).order_by('-created_at')[:limit]
@@ -86,21 +95,17 @@ class AccountantRecentNotificationsView(APIView):
         return Response({'results': data})
 
 
-class AccountantApprovedSalesListView(APIView):
+class AccountantApprovedSalesListView(AccountantHistoryBaseView):
     """List approved sales with payment status filters."""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="List approved sales with filters (All/Partial/Paid)",
         tags=["accountant"]
     )
     def get(self, request):
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         page = int(request.query_params.get('page', 1))
         page_size = int(request.query_params.get('page_size', 10))
@@ -156,21 +161,17 @@ class AccountantApprovedSalesListView(APIView):
         })
 
 
-class AccountantMarkNotificationAsReadView(APIView):
+class AccountantMarkNotificationAsReadView(AccountantHistoryBaseView):
     """Mark a notification as read."""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Mark notification as read",
         tags=["accountant"]
     )
     def post(self, request, notification_id):
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         try:
             notification = Notification.objects.get(id=notification_id, tenant_id=tenant_id)
@@ -187,9 +188,8 @@ class AccountantMarkNotificationAsReadView(APIView):
             return Response({"detail": "Notification not found"}, status=status.HTTP_404_NOT_FOUND)
 
 
-class AccountantMarkAllNotificationsAsReadView(APIView):
+class AccountantMarkAllNotificationsAsReadView(AccountantHistoryBaseView):
     """Mark all notifications as read."""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Mark all notifications as read",
@@ -197,12 +197,9 @@ class AccountantMarkAllNotificationsAsReadView(APIView):
         responses=None
     )
     def post(self, request):
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         count = Notification.objects.filter(tenant_id=tenant_id, is_read=False).update(is_read=True)
         return Response({'marked_as_read': count})

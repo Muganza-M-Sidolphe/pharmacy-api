@@ -1,5 +1,6 @@
 from .views import (
     RetailDashboardView,
+    CollaborativeRetailWholesaleCatalogView,
     RetailExpenseDeleteView,
     RetailExpensesView,
     RetailExpiringMedicinesView,
@@ -13,6 +14,7 @@ from .views import (
 
 __all__ = [
     "RetailMedicinesView",
+    "CollaborativeRetailWholesaleCatalogView",
     "RetailSalesView",
     "RetailExpensesView",
     "RetailStockView",

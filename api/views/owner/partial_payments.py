@@ -15,11 +15,29 @@ from api.serializers import (
     PartialPaymentApprovalRequestSerializer,
     PartialPaymentRejectRequestSerializer,
 )
+from api.utils.subscription_access import authorize_tenant_access
 
 User = get_user_model()
 
 
-class OwnerPartialPaymentsListView(APIView):
+class OwnerPartialPaymentsBaseView(APIView):
+    permission_classes = [IsAuthenticated]
+    required_subscription_feature = "sales_management"
+
+    def _authorize(self, request):
+        tenant_id = request.query_params.get("tenantId")
+        tenant, error_message, error_status = authorize_tenant_access(
+            request,
+            tenant_id,
+            required_role="OWNER",
+            required_feature=self.required_subscription_feature,
+        )
+        if error_message:
+            return None, tenant_id, Response({"error": error_message}, status=error_status)
+        return tenant, tenant_id, None
+
+
+class OwnerPartialPaymentsListView(OwnerPartialPaymentsBaseView):
     """Get list of partial payment invoices pending owner approval"""
     permission_classes = [IsAuthenticated]
 
@@ -33,17 +51,12 @@ class OwnerPartialPaymentsListView(APIView):
         responses={200: OwnerPartialPaymentListSerializer()},
     )
     def get(self, request):
-        tenant_id = request.query_params.get("tenantId")
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
+
         page = int(request.query_params.get("page", 1))
         page_size = int(request.query_params.get("pageSize", 10))
-
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
 
         # Query: Partial payment invoices pending owner approval.
         partial_invoices = Sale.objects.filter(
@@ -92,7 +105,7 @@ class OwnerPartialPaymentsListView(APIView):
         return Response(response_data, status=status.HTTP_200_OK)
 
 
-class OwnerPartialPaymentSummaryView(APIView):
+class OwnerPartialPaymentSummaryView(OwnerPartialPaymentsBaseView):
     """Get summary of partial payment metrics for owner"""
     permission_classes = [IsAuthenticated]
 
@@ -104,15 +117,9 @@ class OwnerPartialPaymentSummaryView(APIView):
         responses={200: OwnerPartialPaymentSummarySerializer()},
     )
     def get(self, request):
-        tenant_id = request.query_params.get("tenantId")
-
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         # Pending approvals (status APPROVED, PARTIAL, owner approval pending)
         pending_invoices = Sale.objects.filter(
@@ -147,7 +154,7 @@ class OwnerPartialPaymentSummaryView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-class OwnerApprovePartialPaymentView(APIView):
+class OwnerApprovePartialPaymentView(OwnerPartialPaymentsBaseView):
     """Owner approves partial payment (first approval after storekeeper)"""
     permission_classes = [IsAuthenticated]
 
@@ -161,15 +168,9 @@ class OwnerApprovePartialPaymentView(APIView):
         responses={200: OwnerPartialPaymentListSerializer()},
     )
     def post(self, request, invoice_id):
-        tenant_id = request.query_params.get("tenantId")
-
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         try:
             invoice = Sale.objects.get(id=invoice_id, tenant_id=tenant_id)
@@ -211,7 +212,7 @@ class OwnerApprovePartialPaymentView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-class OwnerRejectPartialPaymentView(APIView):
+class OwnerRejectPartialPaymentView(OwnerPartialPaymentsBaseView):
     """Owner rejects partial payment invoice"""
     permission_classes = [IsAuthenticated]
 
@@ -225,15 +226,9 @@ class OwnerRejectPartialPaymentView(APIView):
         responses={200: OwnerPartialPaymentListSerializer()},
     )
     def post(self, request, invoice_id):
-        tenant_id = request.query_params.get("tenantId")
-
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         try:
             invoice = Sale.objects.get(id=invoice_id, tenant_id=tenant_id)

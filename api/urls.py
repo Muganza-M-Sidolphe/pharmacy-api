@@ -31,7 +31,8 @@ from .views.role_notifications import (
 )
 from .views.owner.partial_payments import OwnerPartialPaymentsListView, OwnerPartialPaymentSummaryView, OwnerApprovePartialPaymentView, OwnerRejectPartialPaymentView
 from .views.pricing import PricingPlansView, PricingCompareView, PricingFAQView, PricingCalculateUpgradeView, PricingRecommendationView, SubscriptionPlansView, SubscriptionPlanDetailView, SubscriptionHistoryView, SubscriptionUpgradeView, SubscriptionDowngradeView, SubscriptionCancelView, SubscriptionTrialRenewView, SubscriptionTrialStatusView, SubscriptionLimitsView, SubscriptionFeatureView, SubscriptionUsageView, SubscriptionPaymentView, SubscriptionPaymentStatusView, SubscriptionMtnWebhookView, SubscriptionInvoicesView, SubscriptionInvoiceDownloadView
-from .views.retail import RetailMedicinesView, RetailSalesView, RetailInsuranceSalesView, RetailExpensesView, RetailStockView, RetailExpiringMedicinesView, RetailLowStockView, RetailDashboardView, RetailReportsView, RetailExpenseDeleteView
+from .views.retail import RetailMedicinesView, RetailSalesView, RetailInsuranceSalesView, RetailExpensesView, RetailStockView, RetailExpiringMedicinesView, RetailLowStockView, RetailDashboardView, RetailReportsView, RetailExpenseDeleteView, CollaborativeRetailWholesaleCatalogView
+from .views.retail_wholesale import RetailWholesaleRequestListCreateView, RetailWholesaleRequestDecisionView
 from .views.super_admin import SuperAdminMetricsView, SuperAdminTenantsView, SuperAdminTenantDetailView, SuperAdminTenantStatusView, SuperAdminSubscriptionsView, SuperAdminSubscriptionDetailView, SuperAdminSubscriptionPlanView, SuperAdminExtendTrialView, SuperAdminExpireSubscriptionView, SuperAdminCancelSubscriptionView, SuperAdminUsersView, SuperAdminPlansView, SuperAdminPlanDetailView, SuperAdminAuditLogsView, SuperAdminSettingsView
 
 urlpatterns = [
@@ -61,6 +62,8 @@ urlpatterns = [
     path("subscriptions/invoices/<uuid:invoice_id>/download/", SubscriptionInvoiceDownloadView.as_view(), name="subscriptions-invoice-download"),
     path("retails/medicines", RetailMedicinesView.as_view(), name="retails-medicines-no-slash"),
     path("retails/medicines/", RetailMedicinesView.as_view(), name="retails-medicines"),
+    path("retails/wholesale-catalog", CollaborativeRetailWholesaleCatalogView.as_view(), name="retails-wholesale-catalog-no-slash"),
+    path("retails/wholesale-catalog/", CollaborativeRetailWholesaleCatalogView.as_view(), name="retails-wholesale-catalog"),
     path("retails/sales", RetailSalesView.as_view(), name="retails-sales-no-slash"),
     path("retails/sales/", RetailSalesView.as_view(), name="retails-sales"),
     path("retails/insurance-sales", RetailInsuranceSalesView.as_view(), name="retails-insurance-sales-no-slash"),
@@ -79,6 +82,8 @@ urlpatterns = [
     path("retails/dashboard/", RetailDashboardView.as_view(), name="retails-dashboard"),
     path("retails/reports", RetailReportsView.as_view(), name="retails-reports-no-slash"),
     path("retails/reports/", RetailReportsView.as_view(), name="retails-reports"),
+    path("retail-wholesale/requests/", RetailWholesaleRequestListCreateView.as_view(), name="retail-wholesale-requests"),
+    path("retail-wholesale/requests/<uuid:request_id>/decision/", RetailWholesaleRequestDecisionView.as_view(), name="retail-wholesale-request-decision"),
     path("super-admin/metrics/", SuperAdminMetricsView.as_view(), name="super-admin-metrics"),
     path("super-admin/tenants/", SuperAdminTenantsView.as_view(), name="super-admin-tenants"),
     path("super-admin/tenants/<uuid:tenant_id>/", SuperAdminTenantDetailView.as_view(), name="super-admin-tenant-detail"),

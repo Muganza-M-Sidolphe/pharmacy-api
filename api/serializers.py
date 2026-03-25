@@ -7,7 +7,7 @@ User = get_user_model()
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ('id', 'email', 'name', 'password')
+        fields = ('id', 'email', 'name', 'department', 'password')
         
 
 class RegisterTenantSerializer(serializers.Serializer):
@@ -33,6 +33,7 @@ class CreateUserSerializer(serializers.Serializer):
     tenantId = serializers.UUIDField()
     name = serializers.CharField()
     email = serializers.EmailField()
+    department = serializers.ChoiceField(choices=["RETAIL", "WHOLESALE"])
     role = serializers.ChoiceField(choices=[
         "CASHIER",
         "STORE_KEEPER",
@@ -45,7 +46,7 @@ class CreateUserSerializer(serializers.Serializer):
 class UserListSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'email', 'name', 'role', 'is_active', 'created_at']
+        fields = ['id', 'email', 'name', 'department', 'is_active', 'created_at']
 
 
 # users/serializers.py
@@ -53,7 +54,7 @@ class UserListSerializer(serializers.ModelSerializer):
 class UserUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["name", "email", "role"]
+        fields = ["name", "email", "department"]
 
 
 # Tenant/Pharmacy settings serializer
@@ -208,7 +209,7 @@ class AddMedicineWithStockSerializer(serializers.Serializer):
         return medicine
 
 
-from .models import Sale, SaleItem, UserTenant
+from .models import Sale, SaleItem, UserTenant, RetailWholesaleRequest, RetailWholesaleRequestItem
 
 
 class SaleItemSerializer(serializers.ModelSerializer):
@@ -1015,3 +1016,60 @@ class PharmacistDashboardPendingListSerializer(serializers.Serializer):
 class PharmacistDashboardRecentApprovalsSerializer(serializers.Serializer):
     count = serializers.IntegerField()
     results = PharmacistDashboardRecentApprovalSerializer(many=True)
+
+
+class RetailWholesaleRequestItemInputSerializer(serializers.Serializer):
+    medicineId = serializers.UUIDField()
+    quantity = serializers.IntegerField(min_value=1)
+
+
+class CreateRetailWholesaleRequestSerializer(serializers.Serializer):
+    tenantId = serializers.UUIDField()
+    note = serializers.CharField(required=False, allow_blank=True)
+    items = RetailWholesaleRequestItemInputSerializer(many=True)
+
+
+class RetailWholesaleRequestItemSerializer(serializers.ModelSerializer):
+    medicineId = serializers.UUIDField(source="medicine.id", read_only=True)
+    medicineName = serializers.CharField(source="medicine.brand_name", read_only=True)
+
+    class Meta:
+        model = RetailWholesaleRequestItem
+        fields = ["id", "medicineId", "medicineName", "quantity"]
+
+
+class RetailWholesaleRequestSerializer(serializers.ModelSerializer):
+    tenantId = serializers.UUIDField(source="retail_tenant.id", read_only=True)
+    tenantName = serializers.CharField(source="retail_tenant.name", read_only=True)
+    wholesaleTenantId = serializers.UUIDField(source="wholesale_tenant.id", read_only=True)
+    wholesaleTenantName = serializers.CharField(source="wholesale_tenant.name", read_only=True)
+    requestedBy = serializers.UUIDField(source="requested_by.id", read_only=True)
+    requestedByName = serializers.CharField(source="requested_by.name", read_only=True)
+    decidedBy = serializers.UUIDField(source="decided_by.id", read_only=True, allow_null=True)
+    decidedByName = serializers.CharField(source="decided_by.name", read_only=True, allow_null=True)
+    decisionNote = serializers.CharField(source="decision_note", read_only=True, allow_null=True)
+    decidedAt = serializers.DateTimeField(source="decided_at", read_only=True, allow_null=True)
+    createdAt = serializers.DateTimeField(source="created_at", read_only=True)
+    updatedAt = serializers.DateTimeField(source="updated_at", read_only=True)
+    items = RetailWholesaleRequestItemSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = RetailWholesaleRequest
+        fields = [
+            "id",
+            "tenantId",
+            "tenantName",
+            "wholesaleTenantId",
+            "wholesaleTenantName",
+            "requestedBy",
+            "requestedByName",
+            "status",
+            "note",
+            "decisionNote",
+            "decidedBy",
+            "decidedByName",
+            "decidedAt",
+            "createdAt",
+            "updatedAt",
+            "items",
+        ]

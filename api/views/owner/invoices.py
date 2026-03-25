@@ -10,10 +10,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ...models import Notification, Sale, Tenant, UserTenant
+from ...utils.subscription_access import authorize_tenant_access
 
 
 class OwnerInvoicesBaseView(APIView):
     permission_classes = [IsAuthenticated]
+    required_subscription_feature = "sales_management"
 
     def _sale_item_names(self, sale):
         names = []
@@ -35,13 +37,14 @@ class OwnerInvoicesBaseView(APIView):
         return tenant_id, None
 
     def _ensure_owner_access(self, request, tenant_id):
-        has_access = UserTenant.objects.filter(
-            user=request.user,
-            tenant_id=tenant_id,
-            role="OWNER",
-        ).exists()
-        if not has_access:
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, error_message, error_status = authorize_tenant_access(
+            request,
+            tenant_id,
+            required_role="OWNER",
+            required_feature=self.required_subscription_feature,
+        )
+        if error_message:
+            return Response({"detail": error_message}, status=error_status)
         return None
 
     def _tenant_currency(self, tenant_id):

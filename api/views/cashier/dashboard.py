@@ -3,18 +3,36 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from django.core.paginator import Paginator
+from django.db.models import Q
 from django.utils import timezone
 from datetime import timedelta
 from decimal import Decimal
 
 from ...models import UserTenant, StockBatch
 from ...serializers import StockBatchSerializer
+from ...utils.subscription_access import authorize_tenant_access
 from drf_spectacular.utils import extend_schema
 
 
-class CashierDashboardSummaryView(APIView):
-    """API for cashier dashboard overview metrics."""
+class CashierBaseView(APIView):
     permission_classes = [IsAuthenticated]
+    required_subscription_feature = None
+
+    def _authorize(self, request):
+        tenant_id = request.query_params.get('tenantId')
+        tenant, error_message, error_status = authorize_tenant_access(
+            request,
+            tenant_id,
+            required_feature=self.required_subscription_feature,
+        )
+        if error_message:
+            return None, tenant_id, Response({"detail": error_message}, status=error_status)
+        return tenant, tenant_id, None
+
+
+class CashierDashboardSummaryView(CashierBaseView):
+    """API for cashier dashboard overview metrics."""
+    required_subscription_feature = "sales_management"
 
     @extend_schema(
         description="Get cashier dashboard summary: today's sales, available medicines, pending requests, average sale, customers today",
@@ -30,12 +48,9 @@ class CashierDashboardSummaryView(APIView):
         - averageSale: average sale per transaction today
         - customersToday: count of unique customers today
         """
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         today = timezone.now().date()
 
@@ -65,9 +80,9 @@ class CashierDashboardSummaryView(APIView):
         })
 
 
-class CashierStockAlertsView(APIView):
+class CashierStockAlertsView(CashierBaseView):
     """Get stock alerts for cashier (low stock medicines)."""
-    permission_classes = [IsAuthenticated]
+    required_subscription_feature = "inventory_management"
 
     @extend_schema(
         description="Get medicines with low stock that need attention",
@@ -78,12 +93,9 @@ class CashierStockAlertsView(APIView):
         Returns medicines with stock below threshold.
         Each medicine shows: brand_name, generic_name, current_stock, min_threshold
         """
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         page = int(request.query_params.get('page', 1))
         page_size = int(request.query_params.get('page_size', 10))
@@ -125,9 +137,9 @@ class CashierStockAlertsView(APIView):
         })
 
 
-class CashierAvailableMedicinesView(APIView):
+class CashierAvailableMedicinesView(CashierBaseView):
     """Get all available medicines for cashier sales."""
-    permission_classes = [IsAuthenticated]
+    required_subscription_feature = "inventory_management"
 
     @extend_schema(
         description="List all available medicines with current stock levels",
@@ -135,12 +147,9 @@ class CashierAvailableMedicinesView(APIView):
     )
     def get(self, request):
         """List all available medicines with stock levels and pricing."""
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         page = int(request.query_params.get('page', 1))
         page_size = int(request.query_params.get('page_size', 10))
@@ -194,9 +203,9 @@ class CashierAvailableMedicinesView(APIView):
         })
 
 
-class CashierPendingRequestsView(APIView):
+class CashierPendingRequestsView(CashierBaseView):
     """Get pending requests for cashier."""
-    permission_classes = [IsAuthenticated]
+    required_subscription_feature = "sales_management"
 
     @extend_schema(
         description="List pending requests awaiting approval",
@@ -207,12 +216,9 @@ class CashierPendingRequestsView(APIView):
         Returns list of pending requests (e.g., stock requests, refunds, etc.)
         TODO: Implement once Request model is available
         """
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         page = int(request.query_params.get('page', 1))
         page_size = int(request.query_params.get('page_size', 10))
@@ -234,9 +240,9 @@ class CashierPendingRequestsView(APIView):
         })
 
 
-class CashierExpiryAlertsView(APIView):
+class CashierExpiryAlertsView(CashierBaseView):
     """Get expiry alerts for cashier (medicines expiring soon)."""
-    permission_classes = [IsAuthenticated]
+    required_subscription_feature = "expiry_alerts"
 
     @extend_schema(
         description="Get medicines expiring within 30 days",
@@ -244,12 +250,9 @@ class CashierExpiryAlertsView(APIView):
     )
     def get(self, request):
         """List batches expiring soon that cashier should be aware of."""
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         page = int(request.query_params.get('page', 1))
         page_size = int(request.query_params.get('page_size', 10))

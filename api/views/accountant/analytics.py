@@ -18,11 +18,27 @@ from api.serializers import (
     ForecastsSerializer,
     BusinessInsightsSerializer,
 )
+from api.utils.subscription_access import authorize_tenant_access
 
 
-class AccountantAnalyticsDashboardView(APIView):
-    """Get complete analytics dashboard with KPIs, trends, forecasts, and insights"""
+class AccountantAnalyticsBaseView(APIView):
     permission_classes = [IsAuthenticated]
+    required_subscription_feature = "advanced_reports"
+
+    def _authorize(self, request):
+        tenant_id = request.query_params.get("tenantId")
+        tenant, error_message, error_status = authorize_tenant_access(
+            request,
+            tenant_id,
+            required_feature=self.required_subscription_feature,
+        )
+        if error_message:
+            return None, tenant_id, Response({"error": error_message}, status=error_status)
+        return tenant, tenant_id, None
+
+
+class AccountantAnalyticsDashboardView(AccountantAnalyticsBaseView):
+    """Get complete analytics dashboard with KPIs, trends, forecasts, and insights"""
 
     @extend_schema(
         description="Get analytics dashboard with KPIs, trends, forecasts, and business insights",
@@ -31,18 +47,10 @@ class AccountantAnalyticsDashboardView(APIView):
         responses={200: AnalyticsDashboardSerializer()},
     )
     def get(self, request):
-        tenant_id = request.query_params.get("tenantId")
+        tenant, tenant_id, auth_error = self._authorize(request)
         days = int(request.query_params.get("days", 30))
-
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Authorization check
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
-        tenant = Tenant.objects.only("id", "currency").filter(id=tenant_id).first()
+        if auth_error:
+            return auth_error
         currency = (tenant.currency if tenant else "USD")
 
         end_date = datetime.now().date()
@@ -301,9 +309,8 @@ class AccountantAnalyticsDashboardView(APIView):
         return {"insights": insights_list}
 
 
-class AccountantAnalyticsKPIView(APIView):
+class AccountantAnalyticsKPIView(AccountantAnalyticsBaseView):
     """Get analytics KPIs only"""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Get analytics KPIs (Revenue, Avg Order Value, Unique Customers, Inventory Turnover)",
@@ -312,17 +319,10 @@ class AccountantAnalyticsKPIView(APIView):
         responses={200: AnalyticsKPISerializer()},
     )
     def get(self, request):
-        tenant_id = request.query_params.get("tenantId")
+        _, tenant_id, auth_error = self._authorize(request)
         days = int(request.query_params.get("days", 30))
-
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Authorization check
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        if auth_error:
+            return auth_error
 
         end_date = datetime.now().date()
         start_date = end_date - timedelta(days=days)
@@ -356,9 +356,8 @@ class AccountantAnalyticsKPIView(APIView):
         return Response(serializer.data)
 
 
-class AccountantAnalyticsTrendsView(APIView):
+class AccountantAnalyticsTrendsView(AccountantAnalyticsBaseView):
     """Get analytics trends (daily revenue, hourly pattern, revenue vs transactions)"""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Get analytics trends: daily revenue trend, hourly sales pattern, revenue vs transactions",
@@ -367,21 +366,13 @@ class AccountantAnalyticsTrendsView(APIView):
         responses={200: TrendsAnalysisSerializer()},
     )
     def get(self, request):
-        tenant_id = request.query_params.get("tenantId")
+        tenant, tenant_id, auth_error = self._authorize(request)
         days = int(request.query_params.get("days", 7))
-
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Authorization check
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        if auth_error:
+            return auth_error
 
         end_date = datetime.now().date()
         start_date = end_date - timedelta(days=days)
-        tenant = Tenant.objects.only("id", "currency").filter(id=tenant_id).first()
         currency = (tenant.currency if tenant else "USD")
 
         dashboard_view = AccountantAnalyticsDashboardView()
@@ -400,9 +391,8 @@ class AccountantAnalyticsTrendsView(APIView):
         return Response(serializer.data)
 
 
-class AccountantAnalyticsForecastsView(APIView):
+class AccountantAnalyticsForecastsView(AccountantAnalyticsBaseView):
     """Get analytics forecasts"""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Get revenue forecasts for next 7 days",
@@ -411,21 +401,13 @@ class AccountantAnalyticsForecastsView(APIView):
         responses={200: ForecastsSerializer()},
     )
     def get(self, request):
-        tenant_id = request.query_params.get("tenantId")
+        tenant, tenant_id, auth_error = self._authorize(request)
         days = int(request.query_params.get("days", 30))
-
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Authorization check
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        if auth_error:
+            return auth_error
 
         end_date = datetime.now().date()
         start_date = end_date - timedelta(days=days)
-        tenant = Tenant.objects.only("id", "currency").filter(id=tenant_id).first()
         currency = (tenant.currency if tenant else "USD")
 
         sales = Sale.objects.filter(
@@ -439,9 +421,8 @@ class AccountantAnalyticsForecastsView(APIView):
         return Response(serializer.data)
 
 
-class AccountantAnalyticsInsightsView(APIView):
+class AccountantAnalyticsInsightsView(AccountantAnalyticsBaseView):
     """Get business insights and recommendations"""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Get business insights and recommendations",
@@ -450,17 +431,10 @@ class AccountantAnalyticsInsightsView(APIView):
         responses={200: BusinessInsightsSerializer()},
     )
     def get(self, request):
-        tenant_id = request.query_params.get("tenantId")
+        tenant, tenant_id, auth_error = self._authorize(request)
         days = int(request.query_params.get("days", 30))
-
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Authorization check
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        if auth_error:
+            return auth_error
 
         end_date = datetime.now().date()
         start_date = end_date - timedelta(days=days)
@@ -470,7 +444,6 @@ class AccountantAnalyticsInsightsView(APIView):
         )
         revenue = sales.aggregate(Sum('total_amount'))['total_amount__sum'] or Decimal('0')
         unique_customers = sales.values('customer_phone').distinct().count()
-        tenant = Tenant.objects.only("id", "currency").filter(id=tenant_id).first()
         currency = (tenant.currency if tenant else "USD")
 
         dashboard_view = AccountantAnalyticsDashboardView()

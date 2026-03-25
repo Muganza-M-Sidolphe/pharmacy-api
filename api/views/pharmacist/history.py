@@ -10,15 +10,31 @@ from django.http import HttpResponse
 import csv
 from drf_spectacular.utils import extend_schema
 from api.models import Sale, SaleItem, UserTenant, Notification
+from api.utils.subscription_access import authorize_tenant_access
 from api.serializers import (
     PharmacistApprovalHistoryListSerializer,
     PharmacistHistorySummarySerializer,
 )
 
 
-class PharmacistApprovalHistoryListView(APIView):
-    """Get approval history of all invoices reviewed by pharmacist"""
+class PharmacistHistoryBaseView(APIView):
     permission_classes = [IsAuthenticated]
+    required_subscription_feature = "advanced_reports"
+
+    def _authorize(self, request):
+        tenant_id = request.query_params.get("tenantId")
+        tenant, error_message, error_status = authorize_tenant_access(
+            request,
+            tenant_id,
+            required_feature=self.required_subscription_feature,
+        )
+        if error_message:
+            return None, tenant_id, Response({"error": error_message}, status=error_status)
+        return tenant, tenant_id, None
+
+
+class PharmacistApprovalHistoryListView(PharmacistHistoryBaseView):
+    """Get approval history of all invoices reviewed by pharmacist"""
 
     @extend_schema(
         description="Get pharmacist approval history with filters",
@@ -44,13 +60,9 @@ class PharmacistApprovalHistoryListView(APIView):
         page = int(request.query_params.get("page", 1))
         page_size = int(request.query_params.get("pageSize", 10))
 
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         # Query invoices approved by pharmacist (status COMPLETED or REJECTED)
         approvals = Sale.objects.filter(
@@ -130,9 +142,8 @@ class PharmacistApprovalHistoryListView(APIView):
         return Response(response_data, status=status.HTTP_200_OK)
 
 
-class PharmacistHistorySummaryView(APIView):
+class PharmacistHistorySummaryView(PharmacistHistoryBaseView):
     """Get summary KPIs for pharmacist approval history"""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Get pharmacist approval history summary statistics",
@@ -144,13 +155,9 @@ class PharmacistHistorySummaryView(APIView):
     def get(self, request):
         tenant_id = request.query_params.get("tenantId")
 
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         # Total approvals (pharmacist_approval_status = APPROVED, status = COMPLETED)
         approved_invoices = Sale.objects.filter(
@@ -198,9 +205,8 @@ class PharmacistHistorySummaryView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-class PharmacistHistoryExportView(APIView):
+class PharmacistHistoryExportView(PharmacistHistoryBaseView):
     """Export pharmacist approval history as CSV"""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Export pharmacist approval history as CSV",
@@ -220,13 +226,9 @@ class PharmacistHistoryExportView(APIView):
         start_date = request.query_params.get("startDate")
         end_date = request.query_params.get("endDate")
 
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         # Query invoices
         approvals = Sale.objects.filter(
@@ -291,9 +293,8 @@ class PharmacistHistoryExportView(APIView):
         return response
 
 
-class PharmacistHistorySearchView(APIView):
+class PharmacistHistorySearchView(PharmacistHistoryBaseView):
     """Search pharmacist approval history"""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Search pharmacist approval history",
@@ -307,16 +308,11 @@ class PharmacistHistorySearchView(APIView):
         tenant_id = request.query_params.get("tenantId")
         search_query = request.query_params.get("query", "").strip()
 
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
         if not search_query:
             return Response({"error": "query is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         # Search in invoice number, customer name, phone
         approvals = Sale.objects.filter(

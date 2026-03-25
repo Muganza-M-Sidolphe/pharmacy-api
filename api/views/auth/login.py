@@ -41,6 +41,11 @@ def _tenant_pharmacy_type(tenant, business_type=None):
     return None
 
 
+def _is_collaborative_retail(user, tenant, business_type=None):
+    resolved_business_type = business_type or _tenant_business_type(tenant)
+    return user.department == "RETAIL" and resolved_business_type == "WHOLESALE"
+
+
 class LoginView(APIView):
     authentication_classes = []
     permission_classes = []
@@ -63,7 +68,9 @@ class LoginView(APIView):
                 "status": "MUST_CHANGE_PASSWORD",
                 "message": "You must change your password before continuing",
                 "userId": str(user.id),
-                "email": user.email
+                "email": user.email,
+                "department": user.department,
+                "isCollaborativeRetail": False,
             })
 
         # Get all user tenants (not just OWNER)
@@ -79,7 +86,9 @@ class LoginView(APIView):
                 "mode": "SUPER_ADMIN",
                 "data": {
                     "token": token,
-                    "role": "SUPER_ADMIN"
+                    "role": "SUPER_ADMIN",
+                    "department": user.department,
+                    "isCollaborativeRetail": False,
                 }
             })
 
@@ -111,7 +120,9 @@ class LoginView(APIView):
                         "businessType": business_type,
                         "pharmacyType": pharmacy_type
                     },
-                    "role": ut.role
+                    "role": ut.role,
+                    "department": user.department,
+                    "isCollaborativeRetail": _is_collaborative_retail(user, ut.tenant, business_type=business_type),
                 }
             })
 
@@ -127,10 +138,13 @@ class LoginView(APIView):
                 "role": ut.role,
                 "businessType": business_type,
                 "pharmacyType": _tenant_pharmacy_type(ut.tenant, business_type=business_type),
+                "isCollaborativeRetail": _is_collaborative_retail(user, ut.tenant, business_type=business_type),
             })
 
         return Response({
             "status": "CHOOSE_TENANT",
+            "department": user.department,
+            "isCollaborativeRetail": False,
             "tenants": tenants_payload,
             "tempToken": temp_token
         })

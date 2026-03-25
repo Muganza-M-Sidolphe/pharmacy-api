@@ -1,7 +1,7 @@
 from datetime import timedelta
 from decimal import Decimal
 
-from django.db.models import Count, Sum, Value
+from django.db.models import Count, Prefetch, Q, Sum, Value
 from django.db.models.functions import Coalesce, TruncDate
 from django.utils import timezone
 from rest_framework import status
@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ...models import Expense, ExpenseCategory, Medicine, Sale, SaleItem, StockBatch, UserTenant
+from ...utils.subscription_access import check_subscription_access
 
 
 LOW_STOCK_THRESHOLD = 10
@@ -17,8 +18,10 @@ LOW_STOCK_THRESHOLD = 10
 
 class RetailBaseView(APIView):
     permission_classes = [IsAuthenticated]
+    required_subscription_feature = None
+    allowed_subscription_business_types = None
 
-    def _get_tenant(self, request):
+    def _get_relation(self, request):
         tenant_id = request.query_params.get("tenantId") or request.data.get("tenantId")
         if not tenant_id:
             token = getattr(request, "auth", None)
@@ -35,9 +38,42 @@ class RetailBaseView(APIView):
         else:
             relation = UserTenant.objects.filter(user=request.user).select_related("tenant").first()
 
+        return relation
+
+    def _get_tenant(self, request):
+        relation = self._get_relation(request)
         if not relation:
             return None
         return relation.tenant
+
+    def _tenant_business_type(self, tenant):
+        roles = UserTenant.objects.filter(tenant=tenant).values_list("role", flat=True)
+        if "OWNER" in roles:
+            return "WHOLESALE"
+        if "PHARMACIST" in roles:
+            return "RETAIL"
+        return None
+
+    def _is_collaborative_retail(self, request, tenant=None):
+        if request.user.department != "RETAIL":
+            return False
+        target_tenant = tenant or self._get_tenant(request)
+        if not target_tenant:
+            return False
+        return self._tenant_business_type(target_tenant) == "WHOLESALE"
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        tenant = self._get_tenant(request)
+        if not tenant:
+            return
+        allowed, details = check_subscription_access(
+            tenant,
+            required_feature=self.required_subscription_feature,
+            allowed_business_types=self.allowed_subscription_business_types,
+        )
+        if not allowed:
+            self.permission_denied(request, message=details)
 
 
 def _medicine_payload(medicine):
@@ -68,11 +104,15 @@ def _medicine_payload(medicine):
                     "selling_price": float(batch.selling_price),
                     "manufacture_date": batch.manufacture_date.isoformat() if batch.manufacture_date else None,
                     "expiry_date": batch.expiry_date.isoformat() if batch.expiry_date else None,
+                    "supplier_name": batch.supplier_name,
+                    "supplier_phone": batch.supplier_phone,
+                    "supplier_address": batch.supplier_address,
                 }
             ]
             if batch
             else []
         ),
+        "supplier_name": batch.supplier_name if batch else None,
     }
 
 
@@ -125,12 +165,21 @@ def _sale_payload(sale):
 
 
 class RetailMedicinesView(RetailBaseView):
+    required_subscription_feature = "inventory_management"
+
     def get(self, request):
         tenant = self._get_tenant(request)
         if not tenant:
             return Response({"success": False, "message": "No tenant context"}, status=403)
 
-        medicines = Medicine.objects.filter(tenant=tenant).prefetch_related("batches").order_by("-created_at")
+        medicines = Medicine.objects.filter(tenant=tenant)
+        if self._is_collaborative_retail(request, tenant=tenant):
+            medicines = medicines.filter(created_by=request.user).prefetch_related(
+                Prefetch("batches", queryset=StockBatch.objects.filter(created_by=request.user).order_by("-created_at"))
+            )
+        else:
+            medicines = medicines.prefetch_related("batches")
+        medicines = medicines.order_by("-created_at")
         data = [_medicine_payload(m) for m in medicines]
         return Response({"success": True, "data": data, "currency": tenant.currency})
 
@@ -138,6 +187,7 @@ class RetailMedicinesView(RetailBaseView):
         tenant = self._get_tenant(request)
         if not tenant:
             return Response({"success": False, "message": "No tenant context"}, status=403)
+        is_collaborative_retail = self._is_collaborative_retail(request, tenant=tenant)
 
         name = request.data.get("name")
         quantity = int(request.data.get("quantity", 0))
@@ -153,6 +203,7 @@ class RetailMedicinesView(RetailBaseView):
 
         medicine = Medicine.objects.create(
             tenant=tenant,
+            created_by=request.user if is_collaborative_retail else None,
             brand_name=name,
             generic_name=request.data.get("generic_name"),
             manufacturer=request.data.get("manufacturer"),
@@ -163,20 +214,27 @@ class RetailMedicinesView(RetailBaseView):
 
         StockBatch.objects.create(
             medicine=medicine,
+            created_by=request.user if is_collaborative_retail else None,
             batch_number=batch_number,
             quantity=quantity,
             purchase_price=purchase_price,
             selling_price=selling_price,
             expiry_date=expiry_date or None,
+            supplier_name=request.data.get("supplier_name"),
+            supplier_phone=request.data.get("supplier_phone"),
+            supplier_address=request.data.get("supplier_address"),
         )
         return Response({"success": True, "data": _medicine_payload(medicine)}, status=201)
 
 
 class RetailStockView(RetailBaseView):
+    required_subscription_feature = "inventory_management"
+
     def post(self, request):
         tenant = self._get_tenant(request)
         if not tenant:
             return Response({"success": False, "message": "No tenant context"}, status=403)
+        is_collaborative_retail = self._is_collaborative_retail(request, tenant=tenant)
 
         medicine_id = request.data.get("medicineId")
         quantity = int(request.data.get("quantity", 0))
@@ -186,26 +244,69 @@ class RetailStockView(RetailBaseView):
         if not medicine_id or quantity <= 0:
             return Response({"success": False, "message": "medicineId and quantity are required"}, status=400)
 
-        medicine = Medicine.objects.filter(id=medicine_id, tenant=tenant).first()
+        medicine_filters = {"id": medicine_id, "tenant": tenant}
+        if is_collaborative_retail:
+            medicine_filters["created_by"] = request.user
+        medicine = Medicine.objects.filter(**medicine_filters).first()
         if not medicine:
             return Response({"success": False, "message": "Medicine not found"}, status=404)
 
-        latest = medicine.batches.order_by("-created_at").first()
+        batches_qs = medicine.batches.all()
+        if is_collaborative_retail:
+            batches_qs = batches_qs.filter(created_by=request.user)
+        latest = batches_qs.order_by("-created_at").first()
         purchase_price = latest.purchase_price if latest else Decimal("0.00")
         selling_price = latest.selling_price if latest else Decimal("0.00")
 
         batch = StockBatch.objects.create(
             medicine=medicine,
+            created_by=request.user if is_collaborative_retail else None,
             batch_number=batch_number,
             quantity=quantity,
             purchase_price=purchase_price,
             selling_price=selling_price,
             expiry_date=expiry_date or None,
+            supplier_name=request.data.get("supplier_name"),
+            supplier_phone=request.data.get("supplier_phone"),
+            supplier_address=request.data.get("supplier_address"),
         )
         return Response({"success": True, "data": {"id": str(batch.id)}}, status=201)
 
 
+class CollaborativeRetailWholesaleCatalogView(RetailBaseView):
+    required_subscription_feature = "collaborative_retail_orders"
+    allowed_subscription_business_types = {"WHOLESALE"}
+
+    def get(self, request):
+        tenant = self._get_tenant(request)
+        if not tenant:
+            return Response({"success": False, "message": "No tenant context"}, status=403)
+        if not self._is_collaborative_retail(request, tenant=tenant):
+            return Response(
+                {"success": False, "message": "This catalog is available only for collaborative retail users"},
+                status=403,
+            )
+
+        medicines = (
+            Medicine.objects.filter(tenant=tenant)
+            .filter(Q(created_by__department="WHOLESALE") | Q(created_by__isnull=True))
+            .prefetch_related(
+                Prefetch(
+                    "batches",
+                    queryset=StockBatch.objects.filter(
+                        Q(created_by__department="WHOLESALE") | Q(created_by__isnull=True)
+                    ).order_by("-created_at"),
+                )
+            )
+            .order_by("-created_at")
+        )
+        data = [_medicine_payload(medicine) for medicine in medicines]
+        return Response({"success": True, "data": data, "currency": tenant.currency})
+
+
 class RetailSalesView(RetailBaseView):
+    required_subscription_feature = "sales_management"
+
     def get(self, request):
         tenant = self._get_tenant(request)
         if not tenant:
@@ -223,6 +324,7 @@ class RetailSalesView(RetailBaseView):
         tenant = self._get_tenant(request)
         if not tenant:
             return Response({"success": False, "message": "No tenant context"}, status=403)
+        is_collaborative_retail = self._is_collaborative_retail(request, tenant=tenant)
 
         invoice_number = request.data.get("invoice_number") or f"INV-{timezone.now().strftime('%Y%m%d%H%M%S')}"
         payment_method = request.data.get("payment_method", "CASH")
@@ -257,6 +359,7 @@ class RetailSalesView(RetailBaseView):
 
             batch = (
                 StockBatch.objects.filter(medicine_id=medicine_id, medicine__tenant=tenant, quantity__gt=0)
+                .filter(created_by=request.user if is_collaborative_retail else Q())
                 .order_by("expiry_date", "created_at")
                 .first()
             )
@@ -288,6 +391,8 @@ class RetailSalesView(RetailBaseView):
 
 
 class RetailInsuranceSalesView(RetailBaseView):
+    required_subscription_feature = "sales_management"
+
     def get(self, request):
         tenant = self._get_tenant(request)
         if not tenant:
@@ -303,7 +408,10 @@ class RetailExpensesView(RetailBaseView):
         if not tenant:
             return Response({"success": False, "message": "No tenant context"}, status=403)
 
-        expenses = Expense.objects.filter(tenant=tenant).select_related("category").order_by("-expense_date")
+        expenses = Expense.objects.filter(tenant=tenant)
+        if self._is_collaborative_retail(request, tenant=tenant):
+            expenses = expenses.filter(created_by=request.user)
+        expenses = expenses.select_related("category").order_by("-expense_date")
         data = [
             {
                 "id": str(e.id),
@@ -360,7 +468,10 @@ class RetailExpenseDeleteView(RetailBaseView):
         if not tenant:
             return Response({"success": False, "message": "No tenant context"}, status=403)
 
-        expense = Expense.objects.filter(id=expense_id, tenant=tenant).first()
+        expense_qs = Expense.objects.filter(id=expense_id, tenant=tenant)
+        if self._is_collaborative_retail(request, tenant=tenant):
+            expense_qs = expense_qs.filter(created_by=request.user)
+        expense = expense_qs.first()
         if not expense:
             return Response({"success": False, "message": "Expense not found"}, status=404)
         expense.delete()
@@ -368,24 +479,26 @@ class RetailExpenseDeleteView(RetailBaseView):
 
 
 class RetailExpiringMedicinesView(RetailBaseView):
+    required_subscription_feature = "expiry_alerts"
+
     def get(self, request):
         tenant = self._get_tenant(request)
         if not tenant:
             return Response({"success": False, "message": "No tenant context"}, status=403)
+        is_collaborative_retail = self._is_collaborative_retail(request, tenant=tenant)
 
         days = int(request.query_params.get("days", 30))
         today = timezone.now().date()
         cutoff = today + timedelta(days=days)
-        batches = (
-            StockBatch.objects.filter(
-                medicine__tenant=tenant,
-                quantity__gt=0,
-                expiry_date__isnull=False,
-                expiry_date__lte=cutoff,
-            )
-            .select_related("medicine")
-            .order_by("expiry_date")
+        batches = StockBatch.objects.filter(
+            medicine__tenant=tenant,
+            quantity__gt=0,
+            expiry_date__isnull=False,
+            expiry_date__lte=cutoff,
         )
+        if is_collaborative_retail:
+            batches = batches.filter(created_by=request.user)
+        batches = batches.select_related("medicine").order_by("expiry_date")
         data = [
             {
                 "id": str(b.id),
@@ -394,6 +507,7 @@ class RetailExpiringMedicinesView(RetailBaseView):
                 "purchase_price": float(b.purchase_price),
                 "selling_price": float(b.selling_price),
                 "expiry_date": b.expiry_date.isoformat() if b.expiry_date else None,
+                "supplier_name": b.supplier_name,
                 "Medicine": {
                     "id": str(b.medicine.id),
                     "name": b.medicine.brand_name,
@@ -406,17 +520,22 @@ class RetailExpiringMedicinesView(RetailBaseView):
 
 
 class RetailLowStockView(RetailBaseView):
+    required_subscription_feature = "inventory_management"
+
     def get(self, request):
         tenant = self._get_tenant(request)
         if not tenant:
             return Response({"success": False, "message": "No tenant context"}, status=403)
+        is_collaborative_retail = self._is_collaborative_retail(request, tenant=tenant)
 
-        medicines = (
-            Medicine.objects.filter(tenant=tenant)
-            .annotate(total_qty=Coalesce(Sum("batches__quantity"), Value(0)))
-            .filter(total_qty__lt=LOW_STOCK_THRESHOLD)
-            .order_by("brand_name")
-        )
+        medicines = Medicine.objects.filter(tenant=tenant)
+        if is_collaborative_retail:
+            medicines = medicines.filter(created_by=request.user).annotate(
+                total_qty=Coalesce(Sum("batches__quantity", filter=Q(batches__created_by=request.user)), Value(0))
+            )
+        else:
+            medicines = medicines.annotate(total_qty=Coalesce(Sum("batches__quantity"), Value(0)))
+        medicines = medicines.filter(total_qty__lt=LOW_STOCK_THRESHOLD).order_by("brand_name")
         data = [
             {
                 "id": str(m.id),
@@ -434,14 +553,19 @@ class RetailDashboardView(RetailBaseView):
         tenant = self._get_tenant(request)
         if not tenant:
             return Response({"success": False, "message": "No tenant context"}, status=403)
+        is_collaborative_retail = self._is_collaborative_retail(request, tenant=tenant)
 
         today = timezone.now().date()
         week_start = today - timedelta(days=6)
         month_start = today.replace(day=1)
 
-        sales_today = Sale.objects.filter(tenant=tenant, created_at__date=today)
-        sales_week = Sale.objects.filter(tenant=tenant, created_at__date__gte=week_start, created_at__date__lte=today)
-        sales_month = Sale.objects.filter(tenant=tenant, created_at__date__gte=month_start, created_at__date__lte=today)
+        sales_base = Sale.objects.filter(tenant=tenant)
+        if is_collaborative_retail:
+            sales_base = sales_base.filter(cashier=request.user)
+
+        sales_today = sales_base.filter(created_at__date=today)
+        sales_week = sales_base.filter(created_at__date__gte=week_start, created_at__date__lte=today)
+        sales_month = sales_base.filter(created_at__date__gte=month_start, created_at__date__lte=today)
 
         def _metrics(qs):
             revenue = qs.aggregate(total=Coalesce(Sum("total_amount"), Decimal("0.00"))).get("total") or Decimal("0.00")
@@ -451,22 +575,29 @@ class RetailDashboardView(RetailBaseView):
                 "sales_count": qs.count(),
             }
 
+        stock_batches_qs = StockBatch.objects.filter(medicine__tenant=tenant, quantity__gt=0)
+        medicines_qs = Medicine.objects.filter(tenant=tenant)
+        if is_collaborative_retail:
+            stock_batches_qs = stock_batches_qs.filter(created_by=request.user)
+            medicines_qs = medicines_qs.filter(created_by=request.user)
+
         stock_value = (
-            StockBatch.objects.filter(medicine__tenant=tenant, quantity__gt=0)
-            .aggregate(total=Coalesce(Sum("purchase_price"), Decimal("0.00")))
-            .get("total")
+            stock_batches_qs.aggregate(total=Coalesce(Sum("purchase_price"), Decimal("0.00"))).get("total")
             or Decimal("0.00")
         )
 
-        expiring_count = StockBatch.objects.filter(
-            medicine__tenant=tenant,
-            quantity__gt=0,
+        expiring_count = stock_batches_qs.filter(
             expiry_date__isnull=False,
             expiry_date__lte=today + timedelta(days=30),
         ).count()
+        total_medicines = medicines_qs.count()
+
+        top_medicines_filter = {"sale__tenant": tenant}
+        if is_collaborative_retail:
+            top_medicines_filter["sale__cashier"] = request.user
 
         top_medicines_qs = (
-            SaleItem.objects.filter(sale__tenant=tenant)
+            SaleItem.objects.filter(**top_medicines_filter)
             .values("medicine__brand_name")
             .annotate(total_qty=Coalesce(Sum("quantity"), 0))
             .order_by("-total_qty")[:5]
@@ -477,26 +608,26 @@ class RetailDashboardView(RetailBaseView):
         ]
 
         cash_sales = (
-            Sale.objects.filter(tenant=tenant, payment_method="CASH")
+            sales_base.filter(payment_method="CASH")
             .aggregate(total=Coalesce(Sum("total_amount"), Decimal("0.00")))
             .get("total")
             or Decimal("0.00")
         )
         insurance_sales = (
-            Sale.objects.filter(tenant=tenant, payment_method="CARD")
+            sales_base.filter(payment_method="CARD")
             .aggregate(total=Coalesce(Sum("total_amount"), Decimal("0.00")))
             .get("total")
             or Decimal("0.00")
         )
         pending_insurance = (
-            Sale.objects.filter(tenant=tenant, payment_method="CARD", due_amount__gt=0)
+            sales_base.filter(payment_method="CARD", due_amount__gt=0)
             .aggregate(total=Coalesce(Sum("due_amount"), Decimal("0.00")))
             .get("total")
             or Decimal("0.00")
         )
 
         daily_qs = (
-            Sale.objects.filter(tenant=tenant, created_at__date__gte=week_start, created_at__date__lte=today)
+            sales_base.filter(created_at__date__gte=week_start, created_at__date__lte=today)
             .annotate(day=TruncDate("created_at"))
             .values("day")
             .annotate(revenue=Coalesce(Sum("total_amount"), Decimal("0.00")), sales_count=Count("id"))
@@ -517,7 +648,7 @@ class RetailDashboardView(RetailBaseView):
                     "month": _metrics(sales_month),
                     "stock": {
                         "total_stock_value": float(stock_value),
-                        "total_medicines": Medicine.objects.filter(tenant=tenant).count(),
+                        "total_medicines": total_medicines,
                     },
                     "expiring": {"count": expiring_count},
                     "top_medicines": top_medicines,
@@ -527,21 +658,30 @@ class RetailDashboardView(RetailBaseView):
                         "pending_insurance": float(pending_insurance),
                     },
                     "daily_trend": daily_trend,
+                    "isCollaborativeRetail": is_collaborative_retail,
                 },
             }
         )
 
 
 class RetailReportsView(RetailBaseView):
+    required_subscription_feature = "advanced_reports"
+
     def get(self, request):
         tenant = self._get_tenant(request)
         if not tenant:
             return Response({"success": False, "message": "No tenant context"}, status=403)
+        is_collaborative_retail = self._is_collaborative_retail(request, tenant=tenant)
 
         start_date = request.query_params.get("start_date")
         end_date = request.query_params.get("end_date")
-        sales_qs = Sale.objects.filter(tenant=tenant).prefetch_related("items__medicine")
-        expenses_qs = Expense.objects.filter(tenant=tenant).select_related("category")
+        sales_qs = Sale.objects.filter(tenant=tenant)
+        expenses_qs = Expense.objects.filter(tenant=tenant)
+        if is_collaborative_retail:
+            sales_qs = sales_qs.filter(cashier=request.user)
+            expenses_qs = expenses_qs.filter(created_by=request.user)
+        sales_qs = sales_qs.prefetch_related("items__medicine")
+        expenses_qs = expenses_qs.select_related("category")
 
         if start_date:
             sales_qs = sales_qs.filter(created_at__date__gte=start_date)
@@ -553,7 +693,10 @@ class RetailReportsView(RetailBaseView):
         total_sales = sales_qs.aggregate(total=Coalesce(Sum("total_amount"), Decimal("0.00"))).get("total") or Decimal("0.00")
         total_expenses = expenses_qs.aggregate(total=Coalesce(Sum("amount"), Decimal("0.00"))).get("total") or Decimal("0.00")
 
-        stock_qs = StockBatch.objects.filter(medicine__tenant=tenant, quantity__gt=0).select_related("medicine")
+        stock_qs = StockBatch.objects.filter(medicine__tenant=tenant, quantity__gt=0)
+        if is_collaborative_retail:
+            stock_qs = stock_qs.filter(created_by=request.user)
+        stock_qs = stock_qs.select_related("medicine")
         expiring_qs = stock_qs.filter(expiry_date__isnull=False, expiry_date__lte=timezone.now().date() + timedelta(days=30))
         expired_qs = stock_qs.filter(expiry_date__isnull=False, expiry_date__lt=timezone.now().date())
 
@@ -578,6 +721,9 @@ class RetailReportsView(RetailBaseView):
                 "purchase_price": float(batch.purchase_price),
                 "selling_price": float(batch.selling_price),
                 "expiry_date": batch.expiry_date.isoformat() if batch.expiry_date else None,
+                "supplier_name": batch.supplier_name,
+                "supplier_phone": batch.supplier_phone,
+                "supplier_address": batch.supplier_address,
                 "Medicine": {
                     "id": str(batch.medicine.id),
                     "name": batch.medicine.brand_name,
@@ -597,5 +743,6 @@ class RetailReportsView(RetailBaseView):
                 "netProfit": float(total_sales - total_expenses),
             },
             "dateRange": {"start_date": start_date, "end_date": end_date},
+            "isCollaborativeRetail": is_collaborative_retail,
         }
         return Response({"success": True, "data": data, "currency": tenant.currency})

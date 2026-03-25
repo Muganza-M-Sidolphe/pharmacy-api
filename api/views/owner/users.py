@@ -1,4 +1,8 @@
 from django.db import transaction
+import logging
+from urllib.parse import urlencode
+from django.conf import settings
+from django.core.mail import send_mail
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -10,7 +14,35 @@ from ...models import User, UserTenant, Tenant
 from ...serializers import CreateUserSerializer, UserUpdateSerializer
 from ...permissions import IsOwner
 from ...utils.password import generate_temp_password
+from ...utils.subscription_access import authorize_tenant_access, get_subscription_limit
 from drf_spectacular.utils import extend_schema
+
+logger = logging.getLogger(__name__)
+
+
+def _build_frontend_url(path, params=None):
+    base_url = getattr(settings, "FRONTEND_BASE_URL", "http://localhost:5173").rstrip("/")
+    query = f"?{urlencode(params)}" if params else ""
+    return f"{base_url}{path}{query}"
+
+
+def _send_new_user_credentials_email(user, tenant, temp_password):
+    login_url = _build_frontend_url("/login", {"email": user.email})
+    change_password_url = _build_frontend_url("/change-password", {"email": user.email})
+    subject = f"Your account was created for {tenant.name}"
+    message = (
+        f"Hello {user.name},\n\n"
+        f"Your account has been created for {tenant.name}.\n\n"
+        f"Email: {user.email}\n"
+        f"Temporary password: {temp_password}\n\n"
+        "Please sign in, then change your password immediately.\n"
+        f"Login: {login_url}\n"
+        f"Change password: {change_password_url}\n\n"
+        "For security, this temporary password should be used only once."
+    )
+    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", None) or "no-reply@pharmacy.local"
+    send_mail(subject, message, from_email, [user.email], fail_silently=False)
+    return {"loginUrl": login_url, "changePasswordUrl": change_password_url}
 
 
 class CreateUserView(APIView):
@@ -25,14 +57,23 @@ class CreateUserView(APIView):
         tenant_id = data["tenantId"]
 
         # Ensure owner belongs to tenant
-        if not UserTenant.objects.filter(
-            user=request.user,
-            tenant_id=tenant_id,
-            role="OWNER"
-        ).exists():
+        tenant, error_message, error_status = authorize_tenant_access(
+            request,
+            tenant_id,
+            required_role="OWNER",
+        )
+        if error_message:
             return Response(
-                {"error": "You do not own this pharmacy"},
-                status=status.HTTP_403_FORBIDDEN
+                {"error": error_message},
+                status=error_status,
+            )
+
+        max_users = get_subscription_limit(tenant, "users")
+        current_user_count = UserTenant.objects.filter(tenant_id=tenant_id).count()
+        if max_users is not None and current_user_count >= max_users:
+            return Response(
+                {"error": f"Current subscription plan allows only {max_users} users for this tenant"},
+                status=status.HTTP_403_FORBIDDEN,
             )
 
         temp_password = generate_temp_password()
@@ -41,6 +82,7 @@ class CreateUserView(APIView):
             email=data["email"],
             defaults={
                 "name": data["name"],
+                "department": data["department"],
                 "must_change_password": True
             }
         )
@@ -59,18 +101,41 @@ class CreateUserView(APIView):
             tenant_id=tenant_id,
             role=data["role"]
         )
+        tenant = tenant or Tenant.objects.only("id", "name").filter(id=tenant_id).first()
 
-        return Response({
+        email_sent = True
+        email_links = {}
+        email_error = None
+        try:
+            email_links = _send_new_user_credentials_email(
+                user=user,
+                tenant=tenant or Tenant(id=tenant_id, name="your pharmacy"),
+                temp_password=temp_password,
+            )
+        except Exception as exc:  # pragma: no cover - depends on email backend configuration
+            email_sent = False
+            email_error = str(exc)
+            logger.exception("Failed to send new user credentials email to %s", user.email)
+
+        response_payload = {
             "message": "User created successfully",
             "data": {
                 "id": str(user.id),
                 "name": user.name,
                 "email": user.email,
+                "department": user.department,
                 "role": data["role"],
-                "tenantId": str(tenant_id)
+                "tenantId": str(tenant_id),
+                "temporaryPassword": temp_password,
             },
-            "temporaryPassword": temp_password
-        }, status=status.HTTP_201_CREATED)
+            "credentialsEmailSent": email_sent,
+            "links": email_links,
+        }
+        if not email_sent:
+            response_payload["warning"] = "User created, but credentials email was not sent"
+            response_payload["emailError"] = email_error
+
+        return Response(response_payload, status=status.HTTP_201_CREATED)
 
 
 class OwnerUserListView(APIView):
@@ -109,6 +174,7 @@ class OwnerUserListView(APIView):
                 "id": str(ut.user.id),
                 "name": ut.user.name,
                 "email": ut.user.email,
+                "department": ut.user.department,
                 "role": ut.role,
                 "created_at": ut.user.created_at
             })

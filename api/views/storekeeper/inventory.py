@@ -9,11 +9,28 @@ from datetime import timedelta
 
 from ...models import Medicine, StockBatch, UserTenant
 from ...serializers import MedicineSerializer, AddMedicineWithStockSerializer, StockBatchSerializer
+from ...utils.subscription_access import authorize_tenant_access
 from drf_spectacular.utils import extend_schema
 
 
-class InventoryListCreateView(APIView):
+class StorekeeperBaseView(APIView):
     permission_classes = [IsAuthenticated]
+    required_subscription_feature = None
+
+    def _authorize(self, request, tenant_id):
+        tenant, error_message, error_status = authorize_tenant_access(
+            request,
+            tenant_id,
+            required_feature=self.required_subscription_feature,
+        )
+        if error_message:
+            return None, Response({"detail": error_message}, status=error_status)
+        return tenant, None
+
+
+class InventoryListCreateView(StorekeeperBaseView):
+    permission_classes = [IsAuthenticated]
+    required_subscription_feature = "inventory_management"
 
     @extend_schema(
         description="Add a new medicine to inventory with initial stock batch",
@@ -26,9 +43,9 @@ class InventoryListCreateView(APIView):
         serializer.is_valid(raise_exception=True)
 
         tenant_id = serializer.validated_data['tenantId']
-        # check user belongs to tenant
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, auth_error = self._authorize(request, tenant_id)
+        if auth_error:
+            return auth_error
 
         medicine = serializer.create(serializer.validated_data)
 
@@ -41,11 +58,9 @@ class InventoryListCreateView(APIView):
     )
     def get(self, request):
         tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, auth_error = self._authorize(request, tenant_id)
+        if auth_error:
+            return auth_error
 
         query = request.query_params.get('query', '').strip()
         page = int(request.query_params.get('page', 1))

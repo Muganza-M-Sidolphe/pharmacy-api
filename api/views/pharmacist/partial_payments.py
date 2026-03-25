@@ -8,6 +8,7 @@ from decimal import Decimal
 from django.db.models import Q, Sum, Count, F
 from drf_spectacular.utils import extend_schema
 from api.models import Medicine, Notification, Sale, SaleItem, StockBatch, Tenant, UserTenant
+from api.utils.subscription_access import authorize_tenant_access
 from api.serializers import (
     PharmacistPartialPaymentListSerializer,
     PharmacistPartialPaymentSummarySerializer,
@@ -16,9 +17,24 @@ from api.serializers import (
 )
 
 
-class PharmacistPartialPaymentsListView(APIView):
-    """Get list of partial payment invoices pending pharmacist approval"""
+class PharmacistPartialPaymentsBaseView(APIView):
     permission_classes = [IsAuthenticated]
+    required_subscription_feature = "sales_management"
+
+    def _authorize(self, request):
+        tenant_id = request.query_params.get("tenantId")
+        tenant, error_message, error_status = authorize_tenant_access(
+            request,
+            tenant_id,
+            required_feature=self.required_subscription_feature,
+        )
+        if error_message:
+            return None, tenant_id, Response({"error": error_message}, status=error_status)
+        return tenant, tenant_id, None
+
+
+class PharmacistPartialPaymentsListView(PharmacistPartialPaymentsBaseView):
+    """Get list of partial payment invoices pending pharmacist approval"""
 
     @extend_schema(
         description="Stage 2: list PARTIAL invoices approved by OWNER and awaiting PHARMACIST approval.",
@@ -34,13 +50,9 @@ class PharmacistPartialPaymentsListView(APIView):
         page = int(request.query_params.get("page", 1))
         page_size = int(request.query_params.get("pageSize", 10))
 
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         # Query: partial invoices approved by owner and pending pharmacist review.
         partial_invoices = Sale.objects.filter(
@@ -89,9 +101,8 @@ class PharmacistPartialPaymentsListView(APIView):
         return Response(response_data, status=status.HTTP_200_OK)
 
 
-class PharmacistPartialPaymentSummaryView(APIView):
+class PharmacistPartialPaymentSummaryView(PharmacistPartialPaymentsBaseView):
     """Get summary of partial payment metrics"""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Pharmacist-stage summary for chain: Storekeeper -> Owner -> Pharmacist -> Accountant.",
@@ -103,13 +114,9 @@ class PharmacistPartialPaymentSummaryView(APIView):
     def get(self, request):
         tenant_id = request.query_params.get("tenantId")
 
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         # Partial payments pending pharmacist after owner approval.
         partial_invoices = Sale.objects.filter(
@@ -166,9 +173,8 @@ class PharmacistPartialPaymentSummaryView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-class PharmacistApprovePartialPaymentView(APIView):
+class PharmacistApprovePartialPaymentView(PharmacistPartialPaymentsBaseView):
     """Pharmacist approves partial payment (routes to accountant)"""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Stage 2 approval: PHARMACIST approves PARTIAL invoice and routes it to ACCOUNTANT.",
@@ -182,13 +188,9 @@ class PharmacistApprovePartialPaymentView(APIView):
     def post(self, request, invoice_id):
         tenant_id = request.query_params.get("tenantId")
 
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         try:
             invoice = Sale.objects.get(id=invoice_id, tenant_id=tenant_id)
@@ -227,9 +229,8 @@ class PharmacistApprovePartialPaymentView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-class PharmacistRejectPartialPaymentView(APIView):
+class PharmacistRejectPartialPaymentView(PharmacistPartialPaymentsBaseView):
     """Pharmacist rejects partial payment invoice"""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Stage 2 rejection: PHARMACIST rejects PARTIAL invoice and notifies OWNER.",
@@ -243,13 +244,9 @@ class PharmacistRejectPartialPaymentView(APIView):
     def post(self, request, invoice_id):
         tenant_id = request.query_params.get("tenantId")
 
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         try:
             invoice = Sale.objects.get(id=invoice_id, tenant_id=tenant_id)

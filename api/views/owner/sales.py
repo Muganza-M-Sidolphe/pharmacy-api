@@ -127,6 +127,9 @@ class OwnerSalesDashboardView(OwnerSalesBaseView):
             status__in=["APPROVED", "COMPLETED"],
             created_at__date__gte=start,
             created_at__date__lte=end,
+        ).select_related("cashier").prefetch_related(
+            "items__medicine",
+            "items__batch",
         ).order_by("-created_at")
         sales = list(qs)
 
@@ -150,16 +153,38 @@ class OwnerSalesDashboardView(OwnerSalesBaseView):
             payment_dist[method]["amount"] += sale.paid_amount
 
         for sale in sales[:10]:
+            sale_items = []
+            for item in sale.items.all():
+                sale_items.append(
+                    {
+                        "id": str(item.id),
+                        "medicineId": str(item.medicine_id),
+                        "medicineBrandName": item.medicine.brand_name if item.medicine else None,
+                        "medicineGenericName": item.medicine.generic_name if item.medicine else None,
+                        "batchNumber": item.batch.batch_number if item.batch else None,
+                        "quantity": item.quantity,
+                        "unitPrice": str(item.unit_price),
+                        "subtotal": str(item.subtotal),
+                    }
+                )
+
+            cashier = sale.cashier
             recent_sales.append(
                 {
                     "saleId": str(sale.id),
                     "invoiceNumber": sale.invoice_number,
                     "customerName": sale.customer_name or "Walk-in Customer",
+                    "cashier": {
+                        "id": str(cashier.id) if cashier else None,
+                        "name": cashier.name if cashier else None,
+                        "email": cashier.email if cashier else None,
+                    },
                     "paymentMethod": sale.payment_method,
                     "paymentOption": sale.payment_option,
                     "status": sale.status,
                     "paidAmount": str(sale.paid_amount),
                     "totalAmount": str(sale.total_amount),
+                    "saleItems": sale_items,
                     "createdAt": sale.created_at,
                 }
             )

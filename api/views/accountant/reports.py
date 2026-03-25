@@ -9,12 +9,28 @@ import csv
 
 from ...models import UserTenant, Sale, Medicine, StockBatch, Expense
 from ...serializers import FinancialReportSerializer, InventoryReportSerializer, SalesReportSerializer
+from ...utils.subscription_access import authorize_tenant_access
 from drf_spectacular.utils import extend_schema
 
 
-class AccountantFinancialReportView(APIView):
-    """Generate financial report with summary and breakdown."""
+class AccountantReportsBaseView(APIView):
     permission_classes = [IsAuthenticated]
+    required_subscription_feature = "advanced_reports"
+
+    def _authorize(self, request):
+        tenant_id = request.query_params.get('tenantId')
+        tenant, error_message, error_status = authorize_tenant_access(
+            request,
+            tenant_id,
+            required_feature=self.required_subscription_feature,
+        )
+        if error_message:
+            return None, tenant_id, Response({"detail": error_message}, status=error_status)
+        return tenant, tenant_id, None
+
+
+class AccountantFinancialReportView(AccountantReportsBaseView):
+    """Generate financial report with summary and breakdown."""
 
     @extend_schema(
         description="Get financial report: revenue, net profit, profit margin, transactions, breakdown",
@@ -22,12 +38,9 @@ class AccountantFinancialReportView(APIView):
         tags=["accountant"]
     )
     def get(self, request):
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         start_date = request.query_params.get('startDate')
         end_date = request.query_params.get('endDate')
@@ -73,9 +86,8 @@ class AccountantFinancialReportView(APIView):
         })
 
 
-class AccountantInventoryReportView(APIView):
+class AccountantInventoryReportView(AccountantReportsBaseView):
     """Generate inventory report with stock details."""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Get inventory report: medicines, quantities, values, expiring items",
@@ -83,12 +95,9 @@ class AccountantInventoryReportView(APIView):
         tags=["accountant"]
     )
     def get(self, request):
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         medicines = Medicine.objects.filter(tenant_id=tenant_id)
         items = []
@@ -128,9 +137,8 @@ class AccountantInventoryReportView(APIView):
         })
 
 
-class AccountantSalesReportView(APIView):
+class AccountantSalesReportView(AccountantReportsBaseView):
     """Generate sales report with details."""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Get sales report with line items",
@@ -138,12 +146,9 @@ class AccountantSalesReportView(APIView):
         tags=["accountant"]
     )
     def get(self, request):
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         start_date = request.query_params.get('startDate')
         end_date = request.query_params.get('endDate')
@@ -191,9 +196,8 @@ class AccountantSalesReportView(APIView):
         })
 
 
-class AccountantExportReportView(APIView):
+class AccountantExportReportView(AccountantReportsBaseView):
     """Export financial report as CSV."""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Export financial report to CSV",
@@ -201,12 +205,9 @@ class AccountantExportReportView(APIView):
         responses=None
     )
     def get(self, request):
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         start_date = request.query_params.get('startDate')
         end_date = request.query_params.get('endDate')

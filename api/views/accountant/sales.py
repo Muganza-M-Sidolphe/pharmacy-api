@@ -11,12 +11,28 @@ import csv
 
 from ...models import UserTenant, Sale
 from ...serializers import SaleSerializer, SalesSummarySerializer, DailySalesTrendSerializer, PaymentMethodsDistributionSerializer
+from ...utils.subscription_access import authorize_tenant_access
 from drf_spectacular.utils import extend_schema
 
 
-class AccountantSalesSummaryView(APIView):
-	"""Summary metrics for accountant sales dashboard."""
+class AccountantSalesBaseView(APIView):
 	permission_classes = [IsAuthenticated]
+	required_subscription_feature = "advanced_reports"
+
+	def _authorize(self, request):
+		tenant_id = request.query_params.get('tenantId')
+		tenant, error_message, error_status = authorize_tenant_access(
+			request,
+			tenant_id,
+			required_feature=self.required_subscription_feature,
+		)
+		if error_message:
+			return None, tenant_id, Response({"detail": error_message}, status=error_status)
+		return tenant, tenant_id, None
+
+
+class AccountantSalesSummaryView(AccountantSalesBaseView):
+	"""Summary metrics for accountant sales dashboard."""
 
 	@extend_schema(
 		description="Get sales summary: total sales, revenue, average order, unique customers",
@@ -24,12 +40,9 @@ class AccountantSalesSummaryView(APIView):
 		tags=["accountant"]
 	)
 	def get(self, request):
-		tenant_id = request.query_params.get('tenantId')
-		if not tenant_id:
-			return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-		if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-			return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+		_, tenant_id, auth_error = self._authorize(request)
+		if auth_error:
+			return auth_error
 
 		qs = Sale.objects.filter(tenant_id=tenant_id, status__in=['APPROVED', 'COMPLETED'])
 
@@ -54,9 +67,8 @@ class AccountantSalesSummaryView(APIView):
 		})
 
 
-class AccountantDailySalesTrendView(APIView):
+class AccountantDailySalesTrendView(AccountantSalesBaseView):
 	"""Daily sales totals for a date range (defaults to last 7 days)."""
-	permission_classes = [IsAuthenticated]
 
 	@extend_schema(
 		description="Get daily sales totals for charting",
@@ -64,12 +76,9 @@ class AccountantDailySalesTrendView(APIView):
 		tags=["accountant"]
 	)
 	def get(self, request):
-		tenant_id = request.query_params.get('tenantId')
-		if not tenant_id:
-			return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-		if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-			return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+		_, tenant_id, auth_error = self._authorize(request)
+		if auth_error:
+			return auth_error
 
 		start_date = request.query_params.get('startDate')
 		end_date = request.query_params.get('endDate')
@@ -106,9 +115,8 @@ class AccountantDailySalesTrendView(APIView):
 		return Response({'labels': labels, 'data': data})
 
 
-class AccountantPaymentMethodsDistributionView(APIView):
+class AccountantPaymentMethodsDistributionView(AccountantSalesBaseView):
 	"""Distribution of payment methods for a tenant and date range."""
-	permission_classes = [IsAuthenticated]
 
 	@extend_schema(
 		description="Get payment methods distribution",
@@ -116,12 +124,9 @@ class AccountantPaymentMethodsDistributionView(APIView):
 		tags=["accountant"]
 	)
 	def get(self, request):
-		tenant_id = request.query_params.get('tenantId')
-		if not tenant_id:
-			return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-		if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-			return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+		_, tenant_id, auth_error = self._authorize(request)
+		if auth_error:
+			return auth_error
 
 		start_date = request.query_params.get('startDate')
 		end_date = request.query_params.get('endDate')
@@ -163,9 +168,8 @@ class AccountantPaymentMethodsDistributionView(APIView):
 		return Response({'total': total_count, 'distribution': result})
 
 
-class AccountantExportSalesView(APIView):
+class AccountantExportSalesView(AccountantSalesBaseView):
 	"""Export sales as CSV for a date range."""
-	permission_classes = [IsAuthenticated]
 
 	@extend_schema(
 		description="Export sales CSV",
@@ -173,12 +177,9 @@ class AccountantExportSalesView(APIView):
 		responses=None
 	)
 	def get(self, request):
-		tenant_id = request.query_params.get('tenantId')
-		if not tenant_id:
-			return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-		if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-			return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+		_, tenant_id, auth_error = self._authorize(request)
+		if auth_error:
+			return auth_error
 
 		start_date = request.query_params.get('startDate')
 		end_date = request.query_params.get('endDate')
