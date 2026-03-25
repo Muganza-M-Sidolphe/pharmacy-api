@@ -6,14 +6,29 @@ from django.core.paginator import Paginator
 from datetime import datetime
 from decimal import Decimal
 
-from ...models import UserTenant, Expense, ExpenseCategory, Sale
+from ...models import Expense, ExpenseCategory, Sale
 from ...serializers import ExpenseSerializer, CreateExpenseSerializer, ExpenseSummarySerializer
+from ...utils.subscription_access import authorize_tenant_access
 from drf_spectacular.utils import extend_schema
 
 
-class AccountantExpensesListCreateView(APIView):
-    """List and create expenses for a tenant."""
+class AccountantExpensesBaseView(APIView):
     permission_classes = [IsAuthenticated]
+    required_subscription_feature = "sales_management"
+
+    def _authorize(self, request, tenant_id):
+        tenant, error_message, error_status = authorize_tenant_access(
+            request,
+            tenant_id,
+            required_feature=self.required_subscription_feature,
+        )
+        if error_message:
+            return None, Response({"detail": error_message}, status=error_status)
+        return tenant, None
+
+
+class AccountantExpensesListCreateView(AccountantExpensesBaseView):
+    """List and create expenses for a tenant."""
 
     @extend_schema(
         description="List expenses with filters or create a new expense",
@@ -21,11 +36,9 @@ class AccountantExpensesListCreateView(APIView):
     )
     def get(self, request):
         tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, auth_error = self._authorize(request, tenant_id)
+        if auth_error:
+            return auth_error
 
         page = int(request.query_params.get('page', 1))
         page_size = int(request.query_params.get('page_size', 10))
@@ -93,8 +106,9 @@ class AccountantExpensesListCreateView(APIView):
 
         # tenant check
         tenant_id = serializer.validated_data['tenantId']
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, auth_error = self._authorize(request, tenant_id)
+        if auth_error:
+            return auth_error
 
         expense = serializer.save()
         return Response({
@@ -109,8 +123,7 @@ class AccountantExpensesListCreateView(APIView):
         }, status=status.HTTP_201_CREATED)
 
 
-class AccountantExpenseDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+class AccountantExpenseDetailView(AccountantExpensesBaseView):
 
     @extend_schema(
         description="Get expense detail",
@@ -119,11 +132,9 @@ class AccountantExpenseDetailView(APIView):
     )
     def get(self, request, expense_id):
         tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, auth_error = self._authorize(request, tenant_id)
+        if auth_error:
+            return auth_error
 
         try:
             e = Expense.objects.get(id=expense_id, tenant_id=tenant_id)
@@ -148,11 +159,9 @@ class AccountantExpenseDetailView(APIView):
     )
     def put(self, request, expense_id):
         tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, auth_error = self._authorize(request, tenant_id)
+        if auth_error:
+            return auth_error
 
         try:
             e = Expense.objects.get(id=expense_id, tenant_id=tenant_id)
@@ -197,11 +206,9 @@ class AccountantExpenseDetailView(APIView):
     )
     def delete(self, request, expense_id):
         tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, auth_error = self._authorize(request, tenant_id)
+        if auth_error:
+            return auth_error
 
         try:
             e = Expense.objects.get(id=expense_id, tenant_id=tenant_id)
@@ -211,8 +218,7 @@ class AccountantExpenseDetailView(APIView):
             return Response({"detail": "Expense not found"}, status=status.HTTP_404_NOT_FOUND)
 
 
-class AccountantExpensesSummaryView(APIView):
-    permission_classes = [IsAuthenticated]
+class AccountantExpensesSummaryView(AccountantExpensesBaseView):
 
     @extend_schema(
         description="Get expenses and revenue summary (net profit/loss)",
@@ -221,11 +227,9 @@ class AccountantExpensesSummaryView(APIView):
     )
     def get(self, request):
         tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, auth_error = self._authorize(request, tenant_id)
+        if auth_error:
+            return auth_error
 
         start_date = request.query_params.get('startDate')
         end_date = request.query_params.get('endDate')

@@ -6,6 +6,15 @@ from ...models import UserTenant
 from ...utils.jwt import generate_token
 
 
+def _tenant_business_type(tenant):
+    tenant_roles = UserTenant.objects.filter(tenant=tenant).values_list("role", flat=True)
+    if "OWNER" in tenant_roles:
+        return "WHOLESALE"
+    if "PHARMACIST" in tenant_roles:
+        return "RETAIL"
+    return None
+
+
 class SelectTenantView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -44,6 +53,11 @@ class SelectTenantView(APIView):
                     "id": str(request.user.id),
                     "name": request.user.name,
                     "email": request.user.email,
+                    "department": request.user.department,
+                    "isCollaborativeRetail": (
+                        request.user.department == "RETAIL"
+                        and _tenant_business_type(tenant) == "WHOLESALE"
+                    ),
                     "role": user_tenant.role,
                     "tenant_id": str(tenant.id),
                     "tenant_name": tenant.name

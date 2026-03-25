@@ -9,12 +9,28 @@ from decimal import Decimal
 
 from ...models import UserTenant, Sale, Notification
 from ...serializers import SaleSerializer
+from ...utils.subscription_access import authorize_tenant_access
 from drf_spectacular.utils import extend_schema
 
 
-class CashierHistorySummaryView(APIView):
-    """Get cashier history summary metrics."""
+class CashierHistoryBaseView(APIView):
     permission_classes = [IsAuthenticated]
+    required_subscription_feature = "sales_management"
+
+    def _authorize(self, request):
+        tenant_id = request.query_params.get('tenantId')
+        tenant, error_message, error_status = authorize_tenant_access(
+            request,
+            tenant_id,
+            required_feature=self.required_subscription_feature,
+        )
+        if error_message:
+            return None, tenant_id, Response({"detail": error_message}, status=error_status)
+        return tenant, tenant_id, None
+
+
+class CashierHistorySummaryView(CashierHistoryBaseView):
+    """Get cashier history summary metrics."""
 
     @extend_schema(
         description="Get cashier history summary: total sales, total amount, pending amount, unread notifications",
@@ -28,12 +44,9 @@ class CashierHistorySummaryView(APIView):
         - pendingAmount: sum of due amounts (not yet paid)
         - unreadNotifications: count of unread notifications for user
         """
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         # Get all sales for this cashier
         sales = Sale.objects.filter(tenant_id=tenant_id, cashier=request.user)
@@ -57,9 +70,8 @@ class CashierHistorySummaryView(APIView):
         })
 
 
-class CashierSalesHistoryView(APIView):
+class CashierSalesHistoryView(CashierHistoryBaseView):
     """Get sales history with filtering and aggregations."""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Get sales history with date filtering, payment type filtering, and search",
@@ -80,12 +92,9 @@ class CashierSalesHistoryView(APIView):
         - page: page number (default 1)
         - page_size: items per page (default 10)
         """
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         page = int(request.query_params.get('page', 1))
         page_size = int(request.query_params.get('page_size', 10))
@@ -141,9 +150,8 @@ class CashierSalesHistoryView(APIView):
         })
 
 
-class CashierSalesChartDataView(APIView):
+class CashierSalesChartDataView(CashierHistoryBaseView):
     """Get aggregated chart data for sales analytics."""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Get aggregated sales data for charts (by date, payment type, status)",
@@ -165,12 +173,9 @@ class CashierSalesChartDataView(APIView):
         - salesByStatus: {PENDING, APPROVED, COMPLETED, REJECTED, CANCELLED}
         - dailyTotals: sum totals for period
         """
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         # Get date range
         start_date = request.query_params.get('startDate')
@@ -235,9 +240,8 @@ class CashierSalesChartDataView(APIView):
         })
 
 
-class CashierCompletedSalesView(APIView):
+class CashierCompletedSalesView(CashierHistoryBaseView):
     """Get completed sales (full or partial payments)."""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Get completed sales (APPROVED or COMPLETED status)",
@@ -255,12 +259,9 @@ class CashierCompletedSalesView(APIView):
         - page: page number (default 1)
         - page_size: items per page (default 10)
         """
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         page = int(request.query_params.get('page', 1))
         page_size = int(request.query_params.get('page_size', 10))
@@ -304,9 +305,8 @@ class CashierCompletedSalesView(APIView):
         })
 
 
-class CashierPartialPaymentSalesView(APIView):
+class CashierPartialPaymentSalesView(CashierHistoryBaseView):
     """Get sales with partial payments."""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Get sales with partial payments or credit",
@@ -324,12 +324,9 @@ class CashierPartialPaymentSalesView(APIView):
         - page: page number (default 1)
         - page_size: items per page (default 10)
         """
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         page = int(request.query_params.get('page', 1))
         page_size = int(request.query_params.get('page_size', 10))
@@ -373,9 +370,8 @@ class CashierPartialPaymentSalesView(APIView):
         })
 
 
-class CashierStockRequestsView(APIView):
+class CashierStockRequestsView(CashierHistoryBaseView):
     """Get stock requests for cashier (placeholder for future requests model)."""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Get stock requests made by cashier",
@@ -386,12 +382,9 @@ class CashierStockRequestsView(APIView):
         List stock requests.
         TODO: Implement once StockRequest model is available
         """
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         page = int(request.query_params.get('page', 1))
         page_size = int(request.query_params.get('page_size', 10))

@@ -18,11 +18,27 @@ from api.serializers import (
     PharmacistApprovePaymentSerializer,
     PharmacistInvoiceQuickStatsSerializer,
 )
+from api.utils.subscription_access import authorize_tenant_access
 
 
-class PharmacistInvoicesListView(APIView):
-    """Get all invoices with filtering"""
+class PharmacistBaseView(APIView):
     permission_classes = [IsAuthenticated]
+    required_subscription_feature = "sales_management"
+
+    def _authorize(self, request):
+        tenant_id = request.query_params.get("tenantId")
+        tenant, error_message, error_status = authorize_tenant_access(
+            request,
+            tenant_id,
+            required_feature=self.required_subscription_feature,
+        )
+        if error_message:
+            return None, tenant_id, Response({"error": error_message}, status=error_status)
+        return tenant, tenant_id, None
+
+
+class PharmacistInvoicesListView(PharmacistBaseView):
+    """Get all invoices with filtering"""
 
     def _approved_by_name(self, sale):
         if not sale.approved_by:
@@ -66,13 +82,9 @@ class PharmacistInvoicesListView(APIView):
         page = int(request.query_params.get("page", 1))
         page_size = int(request.query_params.get("pageSize", 10))
 
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         # Base query - invoices that are approved by accountant and visible to pharmacist
         invoices = Sale.objects.filter(
@@ -142,9 +154,8 @@ class PharmacistInvoicesListView(APIView):
         return Response(serializer.data)
 
 
-class PharmacistInvoiceDetailView(APIView):
+class PharmacistInvoiceDetailView(PharmacistBaseView):
     """Get invoice detail with items"""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Get invoice detail with all items",
@@ -157,13 +168,9 @@ class PharmacistInvoiceDetailView(APIView):
     def get(self, request, invoice_id):
         tenant_id = request.query_params.get("tenantId")
 
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         try:
             sale = Sale.objects.select_related("approved_by").get(id=invoice_id, tenant_id=tenant_id)
@@ -206,9 +213,8 @@ class PharmacistInvoiceDetailView(APIView):
         return Response(serializer.data)
 
 
-class PharmacistInvoicesSummaryView(APIView):
+class PharmacistInvoicesSummaryView(PharmacistBaseView):
     """Get invoices summary statistics"""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Get invoices summary: totals, collected, outstanding",
@@ -218,13 +224,9 @@ class PharmacistInvoicesSummaryView(APIView):
     def get(self, request):
         tenant_id = request.query_params.get("tenantId")
 
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         today = date.today()
 
@@ -258,9 +260,8 @@ class PharmacistInvoicesSummaryView(APIView):
         return Response(serializer.data)
 
 
-class PharmacistApproveInvoiceView(APIView):
+class PharmacistApproveInvoiceView(PharmacistBaseView):
     """Pharmacist approves invoice (records approval)"""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Pharmacist approves invoice after accountant approval",
@@ -274,13 +275,9 @@ class PharmacistApproveInvoiceView(APIView):
     def post(self, request, invoice_id):
         tenant_id = request.query_params.get("tenantId")
 
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         try:
             sale = Sale.objects.select_related("approved_by").get(id=invoice_id, tenant_id=tenant_id)
@@ -340,9 +337,8 @@ class PharmacistApproveInvoiceView(APIView):
         return Response(serializer.data)
 
 
-class PharmacistPaymentApprovalsListView(APIView):
+class PharmacistPaymentApprovalsListView(PharmacistBaseView):
     """Get payment approvals pending pharmacist review"""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Get payment approval requests pending pharmacist action",
@@ -360,13 +356,9 @@ class PharmacistPaymentApprovalsListView(APIView):
         page = int(request.query_params.get("page", 1))
         page_size = int(request.query_params.get("pageSize", 10))
 
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         # Get invoices with partial payments pending pharmacist approval
         sales = Sale.objects.filter(
@@ -413,9 +405,8 @@ class PharmacistPaymentApprovalsListView(APIView):
         return Response(serializer.data)
 
 
-class PharmacistApprovePaymentView(APIView):
+class PharmacistApprovePaymentView(PharmacistBaseView):
     """Pharmacist approves payment/records payment received"""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Pharmacist approves or rejects payment for partial payment invoices",
@@ -429,13 +420,9 @@ class PharmacistApprovePaymentView(APIView):
     def post(self, request, invoice_id):
         tenant_id = request.query_params.get("tenantId")
 
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         try:
             sale = Sale.objects.select_related("approved_by").get(id=invoice_id, tenant_id=tenant_id)
@@ -496,9 +483,8 @@ class PharmacistApprovePaymentView(APIView):
         return Response(serializer.data)
 
 
-class PharmacistInvoiceQuickStatsView(APIView):
+class PharmacistInvoiceQuickStatsView(PharmacistBaseView):
     """Get quick statistics for pharmacist dashboard"""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Get quick stats: low stock, expiring soon, pending approvals",
@@ -508,13 +494,9 @@ class PharmacistInvoiceQuickStatsView(APIView):
     def get(self, request):
         tenant_id = request.query_params.get("tenantId")
 
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         # Low stock - medicines with quantity < 10
         from api.models import Medicine

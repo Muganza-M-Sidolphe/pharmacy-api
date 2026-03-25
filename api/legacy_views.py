@@ -87,7 +87,8 @@ class RegisterTenantView(APIView):
         user = User.objects.create_user(
             email=data["ownerEmail"],
             name=data["ownerName"],
-            password=data["password"]
+            password=data["password"],
+            department=pharmacy_type,
         )
 
         # Assign role based on pharmacy type
@@ -115,6 +116,7 @@ class RegisterTenantView(APIView):
                     "id": str(user.id),
                     "name": user.name,
                     "email": user.email,
+                    "department": user.department,
                     "role": role
                 },
                 "tenant": {

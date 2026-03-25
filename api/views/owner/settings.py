@@ -7,6 +7,7 @@ from drf_spectacular.utils import extend_schema
 
 from ...models import Notification, Tenant, UserTenant
 from ...permissions import IsOwner
+from ...utils.subscription_access import authorize_tenant_access, get_subscription_limit
 
 
 COUNTRY_CURRENCY = {
@@ -18,6 +19,7 @@ COUNTRY_CURRENCY = {
 
 class OwnerSettingsBaseView(APIView):
     permission_classes = [IsAuthenticated, IsOwner]
+    required_subscription_feature = None
 
     def _owner_tenants(self, user):
         return UserTenant.objects.filter(
@@ -40,6 +42,17 @@ class OwnerSettingsBaseView(APIView):
             .select_related("tenant")
             .first()
         )
+
+    def _authorize_owner_tenant(self, request, tenant_id):
+        tenant, error_message, error_status = authorize_tenant_access(
+            request,
+            tenant_id,
+            required_role="OWNER",
+            required_feature=self.required_subscription_feature,
+        )
+        if error_message:
+            return None, Response({"detail": error_message}, status=error_status)
+        return tenant, None
 
     def _tenant_payload(self, tenant):
         return {
@@ -124,6 +137,16 @@ class OwnerPharmaciesView(OwnerSettingsBaseView):
     @transaction.atomic
     @extend_schema(description="Create a new pharmacy and assign current user as OWNER", tags=["owner"])
     def post(self, request):
+        owner_tenants = list(self._owner_tenants(request.user))
+        if owner_tenants:
+            primary_tenant = owner_tenants[0].tenant
+            max_branches = get_subscription_limit(primary_tenant, "branches")
+            if max_branches is not None and len(owner_tenants) >= max_branches:
+                return Response(
+                    {"detail": f"Current subscription plan allows only {max_branches} branches"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
         required_fields = ["name", "email", "phone", "address", "licenseNumber"]
         missing_fields = [field for field in required_fields if not request.data.get(field)]
 
@@ -170,6 +193,7 @@ class OwnerPharmaciesView(OwnerSettingsBaseView):
 
 class PharmacySettingsView(OwnerSettingsBaseView):
     """Get and update one pharmacy settings."""
+    required_subscription_feature = "inventory_management"
 
     @extend_schema(description="Get one pharmacy settings by tenantId", tags=["owner"])
     def get(self, request):
@@ -180,14 +204,11 @@ class PharmacySettingsView(OwnerSettingsBaseView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        user_tenant = self._get_owned_tenant(request.user, tenant_id)
-        if not user_tenant:
-            return Response(
-                {"detail": "Unauthorized access to this pharmacy"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        tenant, auth_error = self._authorize_owner_tenant(request, tenant_id)
+        if auth_error:
+            return auth_error
 
-        return Response(self._tenant_payload(user_tenant.tenant), status=status.HTTP_200_OK)
+        return Response(self._tenant_payload(tenant), status=status.HTTP_200_OK)
 
     @transaction.atomic
     @extend_schema(description="Update pharmacy settings by tenantId", tags=["owner"])
@@ -199,14 +220,9 @@ class PharmacySettingsView(OwnerSettingsBaseView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        user_tenant = self._get_owned_tenant(request.user, tenant_id)
-        if not user_tenant:
-            return Response(
-                {"detail": "Unauthorized access to this pharmacy"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        tenant = user_tenant.tenant
+        tenant, auth_error = self._authorize_owner_tenant(request, tenant_id)
+        if auth_error:
+            return auth_error
 
         updatable_fields = {
             "name": "name",

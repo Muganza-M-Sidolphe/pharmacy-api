@@ -8,12 +8,28 @@ from datetime import timedelta
 
 from ...models import StockBatch, UserTenant
 from ...serializers import StockBatchSerializer
+from ...utils.subscription_access import authorize_tenant_access
 from drf_spectacular.utils import extend_schema
 
 
-class ExpiryAlertsView(APIView):
-    """API endpoints for expiry alerts module."""
+class StorekeeperExpiryBaseView(APIView):
     permission_classes = [IsAuthenticated]
+    required_subscription_feature = "expiry_alerts"
+
+    def _authorize(self, request):
+        tenant_id = request.query_params.get('tenantId')
+        tenant, error_message, error_status = authorize_tenant_access(
+            request,
+            tenant_id,
+            required_feature=self.required_subscription_feature,
+        )
+        if error_message:
+            return None, tenant_id, Response({"detail": error_message}, status=error_status)
+        return tenant, tenant_id, None
+
+
+class ExpiryAlertsView(StorekeeperExpiryBaseView):
+    """API endpoints for expiry alerts module."""
 
     @extend_schema(
         description="Get medicine batches expiring soon with pagination and search",
@@ -22,12 +38,9 @@ class ExpiryAlertsView(APIView):
     )
     def get(self, request):
         """List expiring batches (default: within 30 days)."""
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         days = int(request.query_params.get('days', 30))
         page = int(request.query_params.get('page', 1))
@@ -68,9 +81,8 @@ class ExpiryAlertsView(APIView):
         })
 
 
-class ExpiryAlertsSummaryView(APIView):
+class ExpiryAlertsSummaryView(StorekeeperExpiryBaseView):
     """Get expiry alerts summary counts."""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Get expiry alerts summary: total expiring, critical, and expired counts",
@@ -83,12 +95,9 @@ class ExpiryAlertsSummaryView(APIView):
         - critical: batches expiring within 7 days (urgent)
         - expired: batches already expired
         """
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         today = timezone.now().date()
         
@@ -124,9 +133,8 @@ class ExpiryAlertsSummaryView(APIView):
         })
 
 
-class ExpiryAlertsCriticalView(APIView):
+class ExpiryAlertsCriticalView(StorekeeperExpiryBaseView):
     """Get critical expiry alerts (expiring within 7 days)."""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Get batches expiring within 7 days (critical alerts)",
@@ -135,12 +143,9 @@ class ExpiryAlertsCriticalView(APIView):
     )
     def get(self, request):
         """List batches expiring within 7 days."""
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         page = int(request.query_params.get('page', 1))
         page_size = int(request.query_params.get('page_size', 10))
@@ -170,9 +175,8 @@ class ExpiryAlertsCriticalView(APIView):
         })
 
 
-class ExpiredBatchesView(APIView):
+class ExpiredBatchesView(StorekeeperExpiryBaseView):
     """Get already expired batches."""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Get batches that have already expired",
@@ -181,12 +185,9 @@ class ExpiredBatchesView(APIView):
     )
     def get(self, request):
         """List expired batches."""
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         page = int(request.query_params.get('page', 1))
         page_size = int(request.query_params.get('page_size', 10))

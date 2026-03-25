@@ -13,9 +13,26 @@ from api.serializers import (
     PharmacistDashboardPendingListSerializer,
     PharmacistDashboardRecentApprovalsSerializer,
 )
+from api.utils.subscription_access import authorize_tenant_access
 
 
-class PharmacistDashboardSummaryView(APIView):
+class PharmacistDashboardBaseView(APIView):
+    permission_classes = [IsAuthenticated]
+    required_subscription_feature = "sales_management"
+
+    def _authorize(self, request):
+        tenant_id = request.query_params.get("tenantId")
+        tenant, error_message, error_status = authorize_tenant_access(
+            request,
+            tenant_id,
+            required_feature=self.required_subscription_feature,
+        )
+        if error_message:
+            return None, tenant_id, Response({"error": error_message}, status=error_status)
+        return tenant, tenant_id, None
+
+
+class PharmacistDashboardSummaryView(PharmacistDashboardBaseView):
     """Get pharmacist dashboard summary KPIs"""
     permission_classes = [IsAuthenticated]
 
@@ -27,15 +44,9 @@ class PharmacistDashboardSummaryView(APIView):
         responses={200: PharmacistDashboardSummarySerializer()},
     )
     def get(self, request):
-        tenant_id = request.query_params.get("tenantId")
-
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         # Pending Review - Invoices awaiting pharmacist approval (status APPROVED, pharmacist_approval_status PENDING)
         pending_review = Sale.objects.filter(
@@ -109,7 +120,7 @@ class PharmacistDashboardSummaryView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-class PharmacistPendingInvoicesView(APIView):
+class PharmacistPendingInvoicesView(PharmacistDashboardBaseView):
     """Get pending invoices awaiting pharmacist approval"""
     permission_classes = [IsAuthenticated]
 
@@ -122,16 +133,10 @@ class PharmacistPendingInvoicesView(APIView):
         responses={200: PharmacistDashboardPendingListSerializer()},
     )
     def get(self, request):
-        tenant_id = request.query_params.get("tenantId")
         limit = int(request.query_params.get("limit", 5))
-
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         # Get pending invoices
         pending_invoices = Sale.objects.filter(
@@ -157,7 +162,7 @@ class PharmacistPendingInvoicesView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-class PharmacistRecentApprovalsView(APIView):
+class PharmacistRecentApprovalsView(PharmacistDashboardBaseView):
     """Get recently approved invoices"""
     permission_classes = [IsAuthenticated]
 
@@ -170,16 +175,10 @@ class PharmacistRecentApprovalsView(APIView):
         responses={200: PharmacistDashboardRecentApprovalsSerializer()},
     )
     def get(self, request):
-        tenant_id = request.query_params.get("tenantId")
         limit = int(request.query_params.get("limit", 5))
-
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         # Get recently approved invoices
         recent_approvals = Sale.objects.filter(

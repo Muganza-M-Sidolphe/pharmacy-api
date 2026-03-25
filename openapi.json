@@ -1812,6 +1812,92 @@
                 }
             }
         },
+        "/api/cashier/notifications/": {
+            "get": {
+                "operationId": "cashier_notifications_retrieve",
+                "description": "Get recent notifications",
+                "tags": [
+                    "notifications"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/cashier/notifications/{notification_id}/read/": {
+            "post": {
+                "operationId": "cashier_notifications_read_create",
+                "description": "Mark notification as read",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "notification_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "notifications"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/cashier/notifications/read-all/": {
+            "post": {
+                "operationId": "cashier_notifications_read_all_create",
+                "description": "Mark all notifications as read",
+                "tags": [
+                    "notifications"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/cashier/pending-requests/": {
             "get": {
                 "operationId": "cashier_pending_requests_retrieve",
@@ -4105,6 +4191,92 @@
                 }
             }
         },
+        "/api/pharmacist/notifications/": {
+            "get": {
+                "operationId": "pharmacist_notifications_retrieve",
+                "description": "Get recent notifications",
+                "tags": [
+                    "notifications"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/pharmacist/notifications/{notification_id}/read/": {
+            "post": {
+                "operationId": "pharmacist_notifications_read_create",
+                "description": "Mark notification as read",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "notification_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "notifications"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/pharmacist/notifications/read-all/": {
+            "post": {
+                "operationId": "pharmacist_notifications_read_all_create",
+                "description": "Mark all notifications as read",
+                "tags": [
+                    "notifications"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/pharmacist/partial-payments/": {
             "get": {
                 "operationId": "pharmacist_partial_payments_retrieve",
@@ -4496,6 +4668,87 @@
                 "description": "Combined registration for tenant and owner/pharmacist in one API.",
                 "tags": [
                     "register-tenant"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/retail-wholesale/requests/": {
+            "get": {
+                "operationId": "retail_wholesale_requests_retrieve",
+                "tags": [
+                    "retail-wholesale"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            },
+            "post": {
+                "operationId": "retail_wholesale_requests_create",
+                "tags": [
+                    "retail-wholesale"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/retail-wholesale/requests/{request_id}/decision/": {
+            "post": {
+                "operationId": "retail_wholesale_requests_decision_create",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "request_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "retail-wholesale"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
                 ],
                 "responses": {
                     "200": {
@@ -5138,6 +5391,54 @@
                 }
             }
         },
+        "/api/retails/wholesale-catalog": {
+            "get": {
+                "operationId": "retails_wholesale_catalog_retrieve",
+                "tags": [
+                    "retails"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/retails/wholesale-catalog/": {
+            "get": {
+                "operationId": "retails_wholesale_catalog_retrieve_2",
+                "tags": [
+                    "retails"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/roles/": {
             "get": {
                 "operationId": "roles_retrieve",
@@ -5397,6 +5698,92 @@
                             }
                         },
                         "description": ""
+                    }
+                }
+            }
+        },
+        "/api/storekeeper/notifications/": {
+            "get": {
+                "operationId": "storekeeper_notifications_retrieve",
+                "description": "Get recent notifications",
+                "tags": [
+                    "notifications"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/storekeeper/notifications/{notification_id}/read/": {
+            "post": {
+                "operationId": "storekeeper_notifications_read_create",
+                "description": "Mark notification as read",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "notification_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "notifications"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/storekeeper/notifications/read-all/": {
+            "post": {
+                "operationId": "storekeeper_notifications_read_all_create",
+                "description": "Mark all notifications as read",
+                "tags": [
+                    "notifications"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
                     }
                 }
             }
@@ -8532,6 +8919,16 @@
                         "format": "decimal",
                         "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
                     },
+                    "paidAmount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "dueAmount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
                     "paymentMethod": {
                         "type": "string"
                     },
@@ -8550,8 +8947,10 @@
                 "required": [
                     "createdAt",
                     "customerName",
+                    "dueAmount",
                     "id",
                     "invoiceNumber",
+                    "paidAmount",
                     "paymentMethod",
                     "requestedAmount",
                     "requestedAt",

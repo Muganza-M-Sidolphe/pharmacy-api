@@ -24,6 +24,7 @@ PLAN_CATALOG = [
             "advanced_reports": False,
             "multi_branch_support": False,
             "priority_support": False,
+            "collaborative_retail_orders": False,
         },
     },
     {
@@ -51,6 +52,7 @@ PLAN_CATALOG = [
             "advanced_reports": True,
             "multi_branch_support": True,
             "priority_support": False,
+            "collaborative_retail_orders": False,
         },
     },
     {
@@ -78,6 +80,7 @@ PLAN_CATALOG = [
             "advanced_reports": True,
             "multi_branch_support": True,
             "priority_support": True,
+            "collaborative_retail_orders": True,
         },
     },
 ]

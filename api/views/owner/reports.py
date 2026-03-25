@@ -11,36 +11,23 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ...models import Sale, SaleItem, Tenant, UserTenant
+from ...utils.subscription_access import authorize_tenant_access
 
 
 class OwnerReportBaseView(APIView):
     permission_classes = [IsAuthenticated]
+    required_subscription_feature = "advanced_reports"
 
     def _get_tenant(self, request):
         tenant_id = request.query_params.get("tenantId")
-        if not tenant_id:
-            return None, None, Response(
-                {"detail": "tenantId is required"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        has_access = UserTenant.objects.filter(
-            user=request.user,
-            tenant_id=tenant_id,
-            role="OWNER",
-        ).exists()
-        if not has_access:
-            return None, None, Response(
-                {"detail": "Unauthorized tenant access"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        tenant = Tenant.objects.filter(id=tenant_id).first()
-        if not tenant:
-            return None, None, Response(
-                {"detail": "Tenant not found"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        tenant, error_message, error_status = authorize_tenant_access(
+            request,
+            tenant_id,
+            required_role="OWNER",
+            required_feature=self.required_subscription_feature,
+        )
+        if error_message:
+            return None, None, Response({"detail": error_message}, status=error_status)
 
         return tenant_id, tenant, None
 

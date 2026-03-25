@@ -5,14 +5,16 @@ from rest_framework.permissions import IsAuthenticated
 from django.core.paginator import Paginator
 from decimal import Decimal
 
-from ...models import UserTenant, Medicine
+from ...models import Medicine
 from ...serializers import StockBatchSerializer
+from ...utils.subscription_access import authorize_tenant_access
 from drf_spectacular.utils import extend_schema
 
 
 class CashierInventoryListView(APIView):
     """List medicines in inventory for cashier (read-only)."""
     permission_classes = [IsAuthenticated]
+    required_subscription_feature = "inventory_management"
 
     @extend_schema(
         description="List medicines in inventory for cashier with stock and pricing",
@@ -20,11 +22,13 @@ class CashierInventoryListView(APIView):
     )
     def get(self, request):
         tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, error_message, error_status = authorize_tenant_access(
+            request,
+            tenant_id,
+            required_feature=self.required_subscription_feature,
+        )
+        if error_message:
+            return Response({"detail": error_message}, status=error_status)
 
         page = int(request.query_params.get('page', 1))
         page_size = int(request.query_params.get('page_size', 10))

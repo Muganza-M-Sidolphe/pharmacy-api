@@ -30,9 +30,26 @@ from api.utils.reminders import (
     send_partial_payment_email,
     send_partial_payment_sms,
 )
+from api.utils.subscription_access import authorize_tenant_access
 
 
-class AccountantDashboardPaymentsView(APIView):
+class AccountantDashboardBaseView(APIView):
+    permission_classes = [IsAuthenticated]
+    required_subscription_feature = "sales_management"
+
+    def _authorize(self, request):
+        tenant_id = request.query_params.get("tenantId")
+        tenant, error_message, error_status = authorize_tenant_access(
+            request,
+            tenant_id,
+            required_feature=self.required_subscription_feature,
+        )
+        if error_message:
+            return None, tenant_id, Response({"error": error_message}, status=error_status)
+        return tenant, tenant_id, None
+
+
+class AccountantDashboardPaymentsView(AccountantDashboardBaseView):
     """Get complete accountant dashboard with all payment-related metrics"""
     permission_classes = [IsAuthenticated]
 
@@ -42,16 +59,9 @@ class AccountantDashboardPaymentsView(APIView):
         responses={200: AccountantDashboardPaymentsSerializer()},
     )
     def get(self, request):
-        tenant_id = request.query_params.get("tenantId")
-
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Authorization check
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         tenant = Tenant.objects.only("id", "currency").filter(id=tenant_id).first()
         currency = (tenant.currency if tenant else "USD")
@@ -261,7 +271,7 @@ class AccountantDashboardPaymentsView(APIView):
         }
 
 
-class AccountantPendingPartialPaymentsView(APIView):
+class AccountantPendingPartialPaymentsView(AccountantDashboardBaseView):
     """Get pending partial payments only"""
     permission_classes = [IsAuthenticated]
 
@@ -271,15 +281,9 @@ class AccountantPendingPartialPaymentsView(APIView):
         responses={200: PendingPartialPaymentsSerializer()},
     )
     def get(self, request):
-        tenant_id = request.query_params.get("tenantId")
-
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         dashboard_view = AccountantDashboardPaymentsView()
         data = dashboard_view._get_pending_partial_payments(tenant_id)
@@ -288,7 +292,7 @@ class AccountantPendingPartialPaymentsView(APIView):
         return Response(serializer.data)
 
 
-class AccountantOverduePaymentsView(APIView):
+class AccountantOverduePaymentsView(AccountantDashboardBaseView):
     """Get overdue payments only"""
     permission_classes = [IsAuthenticated]
 
@@ -298,15 +302,9 @@ class AccountantOverduePaymentsView(APIView):
         responses={200: OverduePaymentsSerializer()},
     )
     def get(self, request):
-        tenant_id = request.query_params.get("tenantId")
-
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         dashboard_view = AccountantDashboardPaymentsView()
         data = dashboard_view._get_overdue_payments(tenant_id)
@@ -315,7 +313,7 @@ class AccountantOverduePaymentsView(APIView):
         return Response(serializer.data)
 
 
-class AccountantTotalPaidAmountView(APIView):
+class AccountantTotalPaidAmountView(AccountantDashboardBaseView):
     """Get total paid amount statistics"""
     permission_classes = [IsAuthenticated]
 
@@ -325,15 +323,9 @@ class AccountantTotalPaidAmountView(APIView):
         responses={200: TotalPaidAmountSerializer()},
     )
     def get(self, request):
-        tenant_id = request.query_params.get("tenantId")
-
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         dashboard_view = AccountantDashboardPaymentsView()
         data = dashboard_view._get_total_paid_amount(tenant_id)
@@ -342,7 +334,7 @@ class AccountantTotalPaidAmountView(APIView):
         return Response(serializer.data)
 
 
-class AccountantSelectedForInvoiceView(APIView):
+class AccountantSelectedForInvoiceView(AccountantDashboardBaseView):
     """Get sales selected for invoicing"""
     permission_classes = [IsAuthenticated]
 
@@ -352,15 +344,9 @@ class AccountantSelectedForInvoiceView(APIView):
         responses={200: SelectedForInvoiceListSerializer()},
     )
     def get(self, request):
-        tenant_id = request.query_params.get("tenantId")
-
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         dashboard_view = AccountantDashboardPaymentsView()
         data = dashboard_view._get_selected_for_invoice(tenant_id)
@@ -369,7 +355,7 @@ class AccountantSelectedForInvoiceView(APIView):
         return Response(serializer.data)
 
 
-class AccountantPartialPaymentRequestsView(APIView):
+class AccountantPartialPaymentRequestsView(AccountantDashboardBaseView):
     """Get partial payment requests"""
     permission_classes = [IsAuthenticated]
 
@@ -379,15 +365,9 @@ class AccountantPartialPaymentRequestsView(APIView):
         responses={200: PartialPaymentRequestsSerializer()},
     )
     def get(self, request):
-        tenant_id = request.query_params.get("tenantId")
-
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         dashboard_view = AccountantDashboardPaymentsView()
         data = dashboard_view._get_partial_payment_requests(tenant_id)
@@ -396,7 +376,7 @@ class AccountantPartialPaymentRequestsView(APIView):
         return Response(serializer.data)
 
 
-class AccountantQuickStatsView(APIView):
+class AccountantQuickStatsView(AccountantDashboardBaseView):
     """Get quick statistics dashboard"""
     permission_classes = [IsAuthenticated]
 
@@ -406,15 +386,9 @@ class AccountantQuickStatsView(APIView):
         responses={200: QuickStatsSerializer()},
     )
     def get(self, request):
-        tenant_id = request.query_params.get("tenantId")
-
-        if not tenant_id:
-            return Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            UserTenant.objects.get(user=request.user, tenant_id=tenant_id)
-        except UserTenant.DoesNotExist:
-            return Response({"error": "Not authorized for this tenant"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         dashboard_view = AccountantDashboardPaymentsView()
         data = dashboard_view._get_quick_stats(tenant_id)
@@ -426,11 +400,17 @@ class AccountantQuickStatsView(APIView):
 class PartialInvoiceReminderBaseView(APIView):
     permission_classes = [IsAuthenticated]
     ALLOWED_ROLES = ("OWNER", "ACCOUNTANT")
+    required_subscription_feature = "sales_management"
 
     def _authorize(self, request):
         tenant_id = request.query_params.get("tenantId")
-        if not tenant_id:
-            return None, Response({"error": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
+        tenant, error_message, error_status = authorize_tenant_access(
+            request,
+            tenant_id,
+            required_feature=self.required_subscription_feature,
+        )
+        if error_message:
+            return None, Response({"error": error_message}, status=error_status)
 
         has_access = UserTenant.objects.filter(
             user=request.user,

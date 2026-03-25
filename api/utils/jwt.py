@@ -6,6 +6,7 @@ def generate_token(user, tenant=None, role=None):
     refresh["user_id"] = str(user.id)
     refresh["email"] = user.email
     refresh["is_super_admin"] = user.is_super_admin
+    refresh["department"] = getattr(user, "department", None)
 
     if tenant:
         refresh["tenant_id"] = str(tenant.id)

@@ -4,7 +4,8 @@ from .models import (
     User, Tenant, UserTenant, Notification, Medicine, 
     StockBatch, Sale, SaleItem, ExpenseCategory, Expense,
     PartialPaymentReminderConfig, PartialPaymentReminderEvent,
-    SubscriptionPaymentTransaction
+    SubscriptionPaymentTransaction, RetailWholesaleRequest,
+    RetailWholesaleRequestItem,
 )
 
 
@@ -17,18 +18,19 @@ class UserAdmin(BaseUserAdmin):
         "email",
         "name",
         "user_code",
+        "department",
         "is_staff",
         "is_super_admin",
         "is_active",
     )
-    list_filter = ("is_staff", "is_super_admin", "is_active")
-    search_fields = ("email", "name", "user_code")
+    list_filter = ("department", "is_staff", "is_super_admin", "is_active")
+    search_fields = ("email", "name", "user_code", "department")
     ordering = ("email",)
 
     # Fields to show when viewing a user
     fieldsets = (
         (None, {"fields": ("email", "password")}),
-        ("Personal Info", {"fields": ("name", "user_code")}),
+        ("Personal Info", {"fields": ("name", "user_code", "department")}),
         ("Permissions", {"fields": ("is_active", "is_staff", "is_super_admin", "is_superuser", "groups", "user_permissions")}),
         ("Important dates", {"fields": ("last_login", "created_at")}),
     )
@@ -37,7 +39,7 @@ class UserAdmin(BaseUserAdmin):
     add_fieldsets = (
         (None, {
             "classes": ("wide",),
-            "fields": ("email", "name", "password1", "password2", "is_active", "is_staff", "is_super_admin"),
+            "fields": ("email", "name", "department", "password1", "password2", "is_active", "is_staff", "is_super_admin"),
         }),
     )
 
@@ -162,6 +164,29 @@ class SubscriptionPaymentTransactionAdmin(admin.ModelAdmin):
     search_fields = ("reference_id", "external_id", "provider_transaction_id", "tenant__name", "plan_id")
     list_filter = ("provider", "status", "billing_cycle", "currency", "created_at")
     ordering = ("-created_at",)
+
+
+@admin.register(RetailWholesaleRequest)
+class RetailWholesaleRequestAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "retail_tenant",
+        "wholesale_tenant",
+        "status",
+        "requested_by",
+        "decided_by",
+        "created_at",
+    )
+    search_fields = ("retail_tenant__name", "wholesale_tenant__name", "requested_by__email")
+    list_filter = ("status", "retail_tenant", "wholesale_tenant")
+    ordering = ("-created_at",)
+
+
+@admin.register(RetailWholesaleRequestItem)
+class RetailWholesaleRequestItemAdmin(admin.ModelAdmin):
+    list_display = ("id", "request", "medicine", "quantity")
+    search_fields = ("request__id", "medicine__brand_name")
+    list_filter = ("request__status",)
 
 
 # Register User with custom admin

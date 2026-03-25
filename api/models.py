@@ -48,11 +48,21 @@ class Tenant(models.Model):
 # User model
 
 class User(AbstractBaseUser, PermissionsMixin):
+    DEPARTMENT_CHOICES = (
+        ("RETAIL", "RETAIL"),
+        ("WHOLESALE", "WHOLESALE"),
+    )
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user_code = models.CharField(max_length=20, unique=True, null=True, blank=True)
     name = models.CharField(max_length=255)
     email = models.EmailField(unique=True)
     password = models.CharField(max_length=255)
+    department = models.CharField(
+        max_length=20,
+        choices=DEPARTMENT_CHOICES,
+        default="WHOLESALE",
+    )
     must_change_password = models.BooleanField(default=False)
     is_super_admin = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
@@ -91,6 +101,65 @@ class UserTenant(models.Model):
     role = models.CharField(max_length=20, choices=ROLE_CHOICES)
 
 
+class RetailWholesaleRequest(models.Model):
+    STATUS_CHOICES = (
+        ("PENDING", "Pending"),
+        ("OWNER_APPROVED", "Owner Approved"),
+        ("STOCK_CONFIRMED", "Stock Confirmed"),
+        ("PHARMACIST_APPROVED", "Pharmacist Approved"),
+        ("AWAITING_PAYMENT", "Awaiting Payment"),
+        ("PAID_PENDING_CONFIRMATION", "Paid Pending Confirmation"),
+        ("PAYMENT_CONFIRMED", "Payment Confirmed"),
+        ("READY_FOR_DELIVERY", "Ready For Delivery"),
+        ("DELIVERED", "Delivered"),
+        ("COMPLETED", "Completed"),
+        ("REJECTED", "Rejected"),
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    retail_tenant = models.ForeignKey(
+        Tenant,
+        on_delete=models.CASCADE,
+        related_name="retail_outgoing_requests",
+    )
+    wholesale_tenant = models.ForeignKey(
+        Tenant,
+        on_delete=models.CASCADE,
+        related_name="wholesale_incoming_requests",
+    )
+    requested_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="retail_wholesale_requests_created",
+    )
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES, default="PENDING")
+    note = models.TextField(blank=True, null=True)
+    decided_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="retail_wholesale_requests_decided",
+    )
+    decision_note = models.TextField(blank=True, null=True)
+    decided_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class RetailWholesaleRequestItem(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    request = models.ForeignKey(
+        RetailWholesaleRequest,
+        on_delete=models.CASCADE,
+        related_name="items",
+    )
+    medicine = models.ForeignKey("Medicine", on_delete=models.CASCADE)
+    quantity = models.PositiveIntegerField()
+
+
 class Notification(models.Model):
     """Notifications for a tenant or a specific user."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -109,6 +178,13 @@ class Medicine(models.Model):
     """Represents a medicine/product in a tenant's inventory."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="retail_created_medicines",
+    )
     brand_name = models.CharField(max_length=255)
     generic_name = models.CharField(max_length=255, null=True, blank=True)
     manufacturer = models.CharField(max_length=255, null=True, blank=True)
@@ -125,6 +201,20 @@ class StockBatch(models.Model):
     """A stock batch for a medicine (tracks expiry and quantities)."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     medicine = models.ForeignKey(Medicine, on_delete=models.CASCADE, related_name='batches')
+    source_request = models.ForeignKey(
+        RetailWholesaleRequest,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="delivered_stock_batches",
+    )
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="retail_created_stock_batches",
+    )
     batch_number = models.CharField(max_length=100)
     quantity = models.IntegerField(default=0)
     purchase_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)

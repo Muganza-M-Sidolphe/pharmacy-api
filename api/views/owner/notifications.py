@@ -61,20 +61,29 @@ class OwnerNotificationsView(APIView):
         if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id, role="OWNER").exists():
             return Response({"detail": "Unauthorized tenant access"}, status=status.HTTP_403_FORBIDDEN)
 
-        serializer = NotificationModelSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        # Need to construct Notification object manually to bind tenant and optional recipient
-        tenant_id = serializer.validated_data.get('tenant', {}).get('id') if isinstance(serializer.validated_data.get('tenant'), dict) else None
-        # serializer expects tenant to be read-only; create using serializer.validated_data fields directly
-        from ...models import Notification as _Notification
+        title = request.data.get("title")
+        message = request.data.get("message")
+        if not title or not message:
+            return Response(
+                {"detail": "title and message are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         recipient = None
-        if serializer.validated_data.get('recipient'):
-            recipient = User.objects.filter(id=serializer.validated_data['recipient'].get('id')).first()
-        notification = _Notification.objects.create(
-            tenant_id=request.data.get('tenantId'),
-            title=serializer.validated_data['title'],
-            message=serializer.validated_data['message'],
-            recipient=recipient
+        recipient_id = request.data.get("recipientId")
+        if recipient_id:
+            recipient = User.objects.filter(id=recipient_id).first()
+            if not recipient:
+                return Response(
+                    {"detail": "recipientId is invalid"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        notification = Notification.objects.create(
+            tenant_id=tenant_id,
+            title=title,
+            message=message,
+            recipient=recipient,
         )
 
         return Response(NotificationModelSerializer(notification).data, status=status.HTTP_201_CREATED)

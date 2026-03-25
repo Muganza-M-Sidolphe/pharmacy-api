@@ -9,13 +9,29 @@ from decimal import Decimal
 
 from ...models import Notification, Sale, Tenant, UserTenant
 from ...serializers import SaleSerializer
+from ...utils.subscription_access import authorize_tenant_access
 from drf_spectacular.utils import extend_schema
 from django.db.models import Q
 
 
-class AccountantInvoicesListView(APIView):
-    """List all approved invoices for accountant to manage payments."""
+class AccountantInvoicesBaseView(APIView):
     permission_classes = [IsAuthenticated]
+    required_subscription_feature = "sales_management"
+
+    def _authorize(self, request):
+        tenant_id = request.query_params.get('tenantId')
+        tenant, error_message, error_status = authorize_tenant_access(
+            request,
+            tenant_id,
+            required_feature=self.required_subscription_feature,
+        )
+        if error_message:
+            return None, tenant_id, Response({"detail": error_message}, status=error_status)
+        return tenant, tenant_id, None
+
+
+class AccountantInvoicesListView(AccountantInvoicesBaseView):
+    """List all approved invoices for accountant to manage payments."""
 
     @extend_schema(
         description="List invoices approved by storekeeper with payment status filtering",
@@ -36,12 +52,9 @@ class AccountantInvoicesListView(APIView):
         - page: page number (default 1)
         - page_size: items per page (default 10)
         """
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         page = int(request.query_params.get('page', 1))
         page_size = int(request.query_params.get('page_size', 10))
@@ -114,9 +127,8 @@ class AccountantInvoicesListView(APIView):
         })
 
 
-class AccountantInvoiceDetailView(APIView):
+class AccountantInvoiceDetailView(AccountantInvoicesBaseView):
     """Get detailed invoice with all items and payment history."""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Get invoice details with items",
@@ -125,12 +137,9 @@ class AccountantInvoiceDetailView(APIView):
     )
     def get(self, request, sale_id):
         """Get invoice details for payment processing."""
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         try:
             sale = Sale.objects.get(id=sale_id, tenant_id=tenant_id, status__in=['APPROVED', 'COMPLETED'])
@@ -139,9 +148,8 @@ class AccountantInvoiceDetailView(APIView):
             return Response({"detail": "Invoice not found"}, status=status.HTTP_404_NOT_FOUND)
 
 
-class AccountantApproveInvoiceView(APIView):
+class AccountantApproveInvoiceView(AccountantInvoicesBaseView):
     """Accountant approval stage for invoices."""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Stage 3 approval for PARTIAL chain. Requires OWNER + PHARMACIST approvals first; then notifies CASHIER and STORE_KEEPER for delivery.",
@@ -153,12 +161,9 @@ class AccountantApproveInvoiceView(APIView):
         Accountant reviews invoice for payment handling.
         Keep invoice non-completed until it is fully paid.
         """
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         try:
             sale = Sale.objects.get(id=sale_id, tenant_id=tenant_id, status='APPROVED')
@@ -209,9 +214,8 @@ class AccountantApproveInvoiceView(APIView):
             return Response({"detail": "Invoice not found or not in APPROVED status"}, status=status.HTTP_404_NOT_FOUND)
 
 
-class AccountantRecordPartialPaymentView(APIView):
+class AccountantRecordPartialPaymentView(AccountantInvoicesBaseView):
     """Record partial payment for an invoice."""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Record a partial payment for an invoice",
@@ -231,12 +235,9 @@ class AccountantRecordPartialPaymentView(APIView):
         Record a payment for an invoice.
         Invoice remains non-completed until due amount reaches zero.
         """
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         try:
             sale = Sale.objects.get(id=sale_id, tenant_id=tenant_id, status__in=['APPROVED', 'COMPLETED'])
@@ -303,9 +304,8 @@ class AccountantRecordPartialPaymentView(APIView):
             return Response({"detail": "Invoice not found"}, status=status.HTTP_404_NOT_FOUND)
 
 
-class AccountantMarkFullyPaidView(APIView):
+class AccountantMarkFullyPaidView(AccountantInvoicesBaseView):
     """Mark invoice as fully paid."""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Mark invoice as fully paid",
@@ -321,12 +321,9 @@ class AccountantMarkFullyPaidView(APIView):
     )
     def post(self, request, sale_id):
         """Mark invoice as fully paid."""
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         try:
             sale = Sale.objects.get(id=sale_id, tenant_id=tenant_id, status__in=['APPROVED', 'COMPLETED'])
@@ -360,9 +357,8 @@ class AccountantMarkFullyPaidView(APIView):
             return Response({"detail": "Invoice not found"}, status=status.HTTP_404_NOT_FOUND)
 
 
-class AccountantInvoicesSummaryView(APIView):
+class AccountantInvoicesSummaryView(AccountantInvoicesBaseView):
     """Get summary metrics for accountant dashboard."""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Get invoice summary: total, pending, partially paid, fully paid",
@@ -379,12 +375,9 @@ class AccountantInvoicesSummaryView(APIView):
         - partialPaymentInvoices: count of partially paid invoices
         - fullyPaidInvoices: count of fully paid invoices
         """
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         invoices = Sale.objects.filter(
             tenant_id=tenant_id,
@@ -416,9 +409,8 @@ class AccountantInvoicesSummaryView(APIView):
         })
 
 
-class AccountantInvoicesReportView(APIView):
+class AccountantInvoicesReportView(AccountantInvoicesBaseView):
     """Generate invoice collection report for date range."""
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         description="Get invoice report with aggregated payment data",
@@ -433,12 +425,9 @@ class AccountantInvoicesReportView(APIView):
         - startDate: filter from date (YYYY-MM-DD)
         - endDate: filter to date (YYYY-MM-DD)
         """
-        tenant_id = request.query_params.get('tenantId')
-        if not tenant_id:
-            return Response({"detail": "tenantId is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not UserTenant.objects.filter(user=request.user, tenant_id=tenant_id).exists():
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        _, tenant_id, auth_error = self._authorize(request)
+        if auth_error:
+            return auth_error
 
         start_date = request.query_params.get('startDate')
         end_date = request.query_params.get('endDate')
