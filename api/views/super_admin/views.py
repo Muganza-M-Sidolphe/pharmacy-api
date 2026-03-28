@@ -1,5 +1,6 @@
 from datetime import timedelta
 from decimal import Decimal
+import uuid
 
 from django.db.models import Count, Q, Sum
 from django.db.models.functions import Coalesce
@@ -88,10 +89,14 @@ def _plan_payload(plan):
 
 
 def _subscription_payload(subscription):
-    plan = (
-        SubscriptionPlan.objects.filter(code=subscription.plan_id).first()
-        or SubscriptionPlan.objects.filter(id=subscription.plan_id).first()
-    )
+    plan = SubscriptionPlan.objects.filter(code=subscription.plan_id).first()
+    if not plan:
+        try:
+            plan_uuid = uuid.UUID(str(subscription.plan_id))
+        except (TypeError, ValueError, AttributeError):
+            plan_uuid = None
+        if plan_uuid:
+            plan = SubscriptionPlan.objects.filter(id=plan_uuid).first()
     amount_paid = (
         Sale.objects.filter(tenant=subscription.tenant)
         .aggregate(total=Coalesce(Sum("paid_amount"), Decimal("0.00")))
@@ -323,7 +328,14 @@ class SuperAdminSubscriptionPlanView(SuperAdminBaseView):
             return Response({"detail": "Subscription not found"}, status=404)
 
         plan_identifier = request.data.get("plan_id")
-        plan = SubscriptionPlan.objects.filter(Q(id=plan_identifier) | Q(code=plan_identifier)).first()
+        plan = SubscriptionPlan.objects.filter(code=plan_identifier).first()
+        if not plan:
+            try:
+                plan_uuid = uuid.UUID(str(plan_identifier))
+            except (TypeError, ValueError, AttributeError):
+                plan_uuid = None
+            if plan_uuid:
+                plan = SubscriptionPlan.objects.filter(id=plan_uuid).first()
         if not plan:
             return Response({"detail": "Plan not found"}, status=404)
 
