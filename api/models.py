@@ -143,6 +143,20 @@ class RetailWholesaleRequest(models.Model):
         blank=True,
         related_name="retail_wholesale_requests_decided",
     )
+    wholesale_sale = models.ForeignKey(
+        "Sale",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="retail_wholesale_source_requests",
+    )
+    retail_procurement_expense = models.ForeignKey(
+        "Expense",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="retail_wholesale_source_requests",
+    )
     decision_note = models.TextField(blank=True, null=True)
     decided_at = models.DateTimeField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
