@@ -1,3 +1,6 @@
+from decimal import Decimal
+
+from django.db.models import Q
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import status
@@ -5,7 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from ...models import Medicine, RetailWholesaleRequest, RetailWholesaleRequestItem, StockBatch, UserTenant
+from ...models import Expense, ExpenseCategory, Medicine, RetailWholesaleRequest, RetailWholesaleRequestItem, Sale, SaleItem, StockBatch, UserTenant
 from ...serializers import (
     CreateRetailWholesaleRequestSerializer,
     RetailWholesaleRequestSerializer,
@@ -31,6 +34,103 @@ def _tenant_business_type(tenant):
     return None
 
 
+def _request_invoice_number(rw_request):
+    return f"RWR-{timezone.now().strftime('%Y%m%d%H%M%S')}-{str(rw_request.id)[:6].upper()}"
+
+
+def _wholesale_inventory_batches(medicine):
+    return (
+        medicine.batches.filter(quantity__gt=0)
+        .filter(Q(created_by__department="WHOLESALE") | Q(created_by__isnull=True))
+        .order_by("expiry_date", "created_at")
+    )
+
+
+def _allocate_request_batches(rw_request):
+    allocations = []
+    for item in rw_request.items.select_related("medicine").all():
+        remaining = item.quantity
+        source_batches = list(_wholesale_inventory_batches(item.medicine))
+        total_available = sum(max(batch.quantity, 0) for batch in source_batches)
+        if total_available < item.quantity:
+            raise ValueError(
+                f"Insufficient wholesale stock for {item.medicine.brand_name}. "
+                f"Requested {item.quantity}, available {total_available}."
+            )
+
+        for batch in source_batches:
+            if remaining <= 0:
+                break
+            take_qty = min(batch.quantity, remaining)
+            if take_qty <= 0:
+                continue
+            allocations.append(
+                {
+                    "request_item": item,
+                    "medicine": item.medicine,
+                    "batch": batch,
+                    "quantity": take_qty,
+                }
+            )
+            remaining -= take_qty
+
+    return allocations
+
+
+def _create_wholesale_sale_and_reduce_inventory(rw_request):
+    if rw_request.wholesale_sale_id:
+        return rw_request.wholesale_sale
+
+    allocations = _allocate_request_batches(rw_request)
+    subtotal = Decimal("0.00")
+    sale = Sale.objects.create(
+        tenant=rw_request.wholesale_tenant,
+        cashier=None,
+        invoice_number=_request_invoice_number(rw_request),
+        customer_name=(
+            f"Collaborative Retail - {rw_request.requested_by.name}"
+            if rw_request.requested_by_id
+            else "Collaborative Retail"
+        ),
+        customer_phone=getattr(rw_request.requested_by, "email", None),
+        notes=f"Generated from collaborative retail request {rw_request.id}",
+        status="COMPLETED",
+        payment_option="FULL",
+        payment_method="BANK_TRANSFER",
+        currency=(rw_request.wholesale_tenant.currency or "USD"),
+        paid_amount=Decimal("0.00"),
+        due_amount=Decimal("0.00"),
+        total_amount=Decimal("0.00"),
+        subtotal=Decimal("0.00"),
+        approved_at=timezone.now(),
+        approved_by=rw_request.decided_by,
+    )
+
+    for allocation in allocations:
+        batch = allocation["batch"]
+        quantity = allocation["quantity"]
+        unit_price = batch.selling_price
+        item_subtotal = unit_price * quantity
+        SaleItem.objects.create(
+            sale=sale,
+            medicine=allocation["medicine"],
+            batch=batch,
+            quantity=quantity,
+            unit_price=unit_price,
+            subtotal=item_subtotal,
+        )
+        batch.quantity -= quantity
+        batch.save(update_fields=["quantity"])
+        subtotal += item_subtotal
+
+    sale.subtotal = subtotal
+    sale.total_amount = subtotal
+    sale.paid_amount = subtotal
+    sale.due_amount = Decimal("0.00")
+    sale.save(update_fields=["subtotal", "total_amount", "paid_amount", "due_amount", "updated_at"])
+    return sale
+
+
 def _sync_completed_request_to_retail_inventory(rw_request):
     if not rw_request.requested_by_id:
         return
@@ -38,9 +138,37 @@ def _sync_completed_request_to_retail_inventory(rw_request):
     if StockBatch.objects.filter(source_request=rw_request, created_by=rw_request.requested_by).exists():
         return
 
-    request_items = rw_request.items.select_related("medicine").all()
-    for index, item in enumerate(request_items, start=1):
-        source_medicine = item.medicine
+    sale_items = []
+    if rw_request.wholesale_sale_id:
+        sale_items = list(
+            rw_request.wholesale_sale.items.select_related("medicine", "batch").all()
+        )
+
+    if sale_items:
+        source_rows = [
+            {
+                "medicine": sale_item.medicine,
+                "batch": sale_item.batch,
+                "quantity": sale_item.quantity,
+                "index": index,
+            }
+            for index, sale_item in enumerate(sale_items, start=1)
+        ]
+    else:
+        request_items = rw_request.items.select_related("medicine").all()
+        source_rows = [
+            {
+                "medicine": item.medicine,
+                "batch": item.medicine.batches.order_by("-created_at").first(),
+                "quantity": item.quantity,
+                "index": index,
+            }
+            for index, item in enumerate(request_items, start=1)
+        ]
+
+    for row in source_rows:
+        source_medicine = row["medicine"]
+        source_batch = row["batch"]
         target_medicine = Medicine.objects.filter(
             tenant=rw_request.retail_tenant,
             created_by=rw_request.requested_by,
@@ -63,21 +191,65 @@ def _sync_completed_request_to_retail_inventory(rw_request):
                 description=source_medicine.description,
             )
 
-        latest_source_batch = source_medicine.batches.order_by("-created_at").first()
         StockBatch.objects.create(
             medicine=target_medicine,
             source_request=rw_request,
             created_by=rw_request.requested_by,
-            batch_number=f"REQ-{str(rw_request.id)[:8]}-{index}",
-            quantity=item.quantity,
-            purchase_price=latest_source_batch.purchase_price if latest_source_batch else 0,
-            selling_price=latest_source_batch.selling_price if latest_source_batch else 0,
-            manufacture_date=latest_source_batch.manufacture_date if latest_source_batch else None,
-            expiry_date=latest_source_batch.expiry_date if latest_source_batch else None,
+            batch_number=f"REQ-{str(rw_request.id)[:8]}-{row['index']}",
+            quantity=row["quantity"],
+            purchase_price=source_batch.purchase_price if source_batch else 0,
+            selling_price=source_batch.selling_price if source_batch else 0,
+            manufacture_date=source_batch.manufacture_date if source_batch else None,
+            expiry_date=source_batch.expiry_date if source_batch else None,
             supplier_name=rw_request.wholesale_tenant.name,
             supplier_phone=rw_request.wholesale_tenant.phone,
             supplier_address=rw_request.wholesale_tenant.address,
         )
+
+
+def _create_retail_procurement_expense(rw_request):
+    if rw_request.retail_procurement_expense_id:
+        return rw_request.retail_procurement_expense
+
+    total_amount = Decimal("0.00")
+    if rw_request.wholesale_sale_id:
+        total_amount = rw_request.wholesale_sale.total_amount
+    else:
+        for item in rw_request.items.select_related("medicine").all():
+            batch = _wholesale_inventory_batches(item.medicine).first()
+            unit_price = batch.selling_price if batch else Decimal("0.00")
+            total_amount += unit_price * item.quantity
+
+    category, _ = ExpenseCategory.objects.get_or_create(
+        tenant=rw_request.retail_tenant,
+        name="Wholesale Procurement",
+    )
+    expense = Expense.objects.create(
+        tenant=rw_request.retail_tenant,
+        category=category,
+        amount=total_amount,
+        description=(
+            f"Collaborative wholesale order {rw_request.id} supplied by "
+            f"{rw_request.wholesale_tenant.name}"
+        ),
+        expense_date=timezone.now().date(),
+        created_by=rw_request.requested_by,
+    )
+    return expense
+
+
+def _finalize_completed_request(rw_request):
+    sale = _create_wholesale_sale_and_reduce_inventory(rw_request)
+    if rw_request.wholesale_sale_id != sale.id:
+        rw_request.wholesale_sale = sale
+
+    _sync_completed_request_to_retail_inventory(rw_request)
+
+    expense = _create_retail_procurement_expense(rw_request)
+    if rw_request.retail_procurement_expense_id != expense.id:
+        rw_request.retail_procurement_expense = expense
+
+    rw_request.save(update_fields=["wholesale_sale", "retail_procurement_expense", "updated_at"])
 
 
 class RetailWholesaleRequestListCreateView(APIView):
@@ -286,6 +458,9 @@ class RetailWholesaleRequestDecisionView(APIView):
         elif rw_request.status == "DELIVERED":
             rw_request.status = "COMPLETED"
             rw_request.save(update_fields=["status", "updated_at"])
-            _sync_completed_request_to_retail_inventory(rw_request)
+            try:
+                _finalize_completed_request(rw_request)
+            except ValueError as exc:
+                return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(RetailWholesaleRequestSerializer(rw_request).data)
