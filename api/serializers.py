@@ -209,7 +209,9 @@ class AddMedicineWithStockSerializer(serializers.Serializer):
         return medicine
 
 
-from .models import Sale, SaleItem, UserTenant, RetailWholesaleRequest, RetailWholesaleRequestItem
+from django.db.models import Q
+
+from .models import Sale, SaleItem, StockBatch, SupportTicket, UserTenant, RetailWholesaleRequest, RetailWholesaleRequestItem
 
 
 class SaleItemSerializer(serializers.ModelSerializer):
@@ -1032,10 +1034,52 @@ class CreateRetailWholesaleRequestSerializer(serializers.Serializer):
 class RetailWholesaleRequestItemSerializer(serializers.ModelSerializer):
     medicineId = serializers.UUIDField(source="medicine.id", read_only=True)
     medicineName = serializers.CharField(source="medicine.brand_name", read_only=True)
+    genericName = serializers.CharField(source="medicine.generic_name", read_only=True, allow_null=True)
+    unit = serializers.CharField(source="medicine.unit", read_only=True, allow_null=True)
+    unitPrice = serializers.SerializerMethodField()
+    batchNumber = serializers.SerializerMethodField()
+    expiryDate = serializers.SerializerMethodField()
+
+    def _source_batch(self, obj):
+        request_obj = getattr(obj, "request", None)
+        wholesale_sale = getattr(request_obj, "wholesale_sale", None)
+        if wholesale_sale:
+            sale_item = wholesale_sale.items.filter(medicine=obj.medicine).select_related("batch").first()
+            if sale_item and sale_item.batch_id:
+                return sale_item.batch
+
+        return (
+            StockBatch.objects.filter(medicine=obj.medicine)
+            .filter(Q(created_by__department="WHOLESALE") | Q(created_by__isnull=True))
+            .order_by("-created_at")
+            .first()
+        )
+
+    def get_unitPrice(self, obj):
+        batch = self._source_batch(obj)
+        return str(batch.selling_price) if batch else None
+
+    def get_batchNumber(self, obj):
+        batch = self._source_batch(obj)
+        return batch.batch_number if batch else None
+
+    def get_expiryDate(self, obj):
+        batch = self._source_batch(obj)
+        return batch.expiry_date.isoformat() if batch and batch.expiry_date else None
 
     class Meta:
         model = RetailWholesaleRequestItem
-        fields = ["id", "medicineId", "medicineName", "quantity"]
+        fields = [
+            "id",
+            "medicineId",
+            "medicineName",
+            "genericName",
+            "unit",
+            "batchNumber",
+            "expiryDate",
+            "unitPrice",
+            "quantity",
+        ]
 
 
 class RetailWholesaleRequestSerializer(serializers.ModelSerializer):
@@ -1073,3 +1117,12 @@ class RetailWholesaleRequestSerializer(serializers.ModelSerializer):
             "updatedAt",
             "items",
         ]
+
+
+class SupportTicketSerializer(serializers.ModelSerializer):
+    created_by = UserSerializer(read_only=True)
+
+    class Meta:
+        model = SupportTicket
+        fields = "__all__"
+        read_only_fields = ("id", "created_by", "created_at")

@@ -1,6 +1,7 @@
 from django.urls import path
+from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
-from .views import RegisterTenantView,RegisterOwnerView, LoginView, LogoutView,SelectTenantView,CreateUserView, OwnerUserListView,OwnerUpdateUserView,OwnerUserStatusView,OwnerResetUserPasswordView,UsersSummaryView,SearchUsersView,RolesListView,ChangePasswordView, OwnerUsersDashboardView, OwnerNotificationsView, OwnerNotificationDetailView, OwnerNotificationsDashboardView, OwnerDashboardView, OwnerDashboardSummaryView, OwnerDashboardSalesTrendView, OwnerDashboardPartialInvoicesView, OwnerTenantsListView, OwnerSwitchTenantView, PharmacySettingsView, OwnerPharmaciesView, OwnerSettingsOverviewView, OwnerSettingsConsolidatedView, OwnerInvoicesListView, OwnerInvoiceDetailView, OwnerInvoicesSummaryView, OwnerInvoicesDashboardView, OwnerApprovePartialInvoiceView, OwnerRejectPartialInvoiceView, OwnerInventoryView, OwnerInventorySummaryView, OwnerInventoryMedicineDetailView, OwnerSalesDashboardView, OwnerSalesSummaryView, OwnerDailySalesTrendView, OwnerPaymentMethodsDistributionView, OwnerExportSalesView, OwnerSalesReportsDashboardView, OwnerUserManagementReportView, OwnerUsersSummaryCardsView
+from .views import RegisterTenantView,RegisterOwnerView, LoginView, LogoutView,SelectTenantView,CreateUserView, OwnerUserListView,OwnerUpdateUserView,OwnerUserStatusView,OwnerResetUserPasswordView,UsersSummaryView,SearchUsersView,RolesListView,ChangePasswordView, OwnerUsersDashboardView, OwnerNotificationsView, OwnerNotificationDetailView, OwnerNotificationsDashboardView, OwnerDashboardView, OwnerDashboardSummaryView, OwnerDashboardSalesTrendView, OwnerDashboardPartialInvoicesView, OwnerTenantsListView, OwnerSwitchTenantView, PharmacySettingsView, OwnerPharmaciesView, OwnerSettingsOverviewView, OwnerSettingsConsolidatedView, OwnerInvoicesListView, OwnerInvoiceDetailView, OwnerInvoicesSummaryView, OwnerInvoicesDashboardView, OwnerApprovePartialInvoiceView, OwnerRejectPartialInvoiceView, OwnerInventoryView, OwnerInventorySummaryView, OwnerInventoryMedicineDetailView, OwnerSalesDashboardView, OwnerSalesSummaryView, OwnerDailySalesTrendView, OwnerPaymentMethodsDistributionView, OwnerExportSalesView, OwnerSalesReportsDashboardView, OwnerUserManagementReportView, OwnerUsersSummaryCardsView, SupportTicketViewSet
 from .views.storekeeper.inventory import InventoryListCreateView
 from .views.storekeeper.expiry_alerts import ExpiryAlertsView, ExpiryAlertsSummaryView, ExpiryAlertsCriticalView, ExpiredBatchesView
 from .views.cashier.dashboard import CashierDashboardSummaryView, CashierStockAlertsView, CashierAvailableMedicinesView, CashierPendingRequestsView, CashierExpiryAlertsView
@@ -34,6 +35,9 @@ from .views.pricing import PricingPlansView, PricingCompareView, PricingFAQView,
 from .views.retail import RetailMedicinesView, RetailSalesView, RetailInsuranceSalesView, RetailExpensesView, RetailStockView, RetailExpiringMedicinesView, RetailLowStockView, RetailDashboardView, RetailReportsView, RetailExpenseDeleteView, CollaborativeRetailWholesaleCatalogView
 from .views.retail_wholesale import RetailWholesaleRequestListCreateView, RetailWholesaleRequestDecisionView
 from .views.super_admin import SuperAdminMetricsView, SuperAdminTenantsView, SuperAdminTenantDetailView, SuperAdminTenantStatusView, SuperAdminSubscriptionsView, SuperAdminSubscriptionDetailView, SuperAdminSubscriptionPlanView, SuperAdminExtendTrialView, SuperAdminExpireSubscriptionView, SuperAdminCancelSubscriptionView, SuperAdminUsersView, SuperAdminPlansView, SuperAdminPlanDetailView, SuperAdminAuditLogsView, SuperAdminSettingsView
+
+router = DefaultRouter()
+router.register(r"support-tickets", SupportTicketViewSet, basename="support-ticket")
 
 urlpatterns = [
     path("register-tenant/", RegisterTenantView.as_view()),
@@ -237,3 +241,5 @@ urlpatterns = [
     path("roles/", RolesListView.as_view(), name="roles-list"),
     path("users/search/", SearchUsersView.as_view(), name="search-users"),
 ]
+
+urlpatterns += router.urls

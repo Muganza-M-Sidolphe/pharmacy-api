@@ -117,6 +117,7 @@ class LoginView(APIView):
                     "tenant": {
                         "id": str(ut.tenant.id),
                         "name": ut.tenant.name,
+                        "currency": ut.tenant.currency,
                         "businessType": business_type,
                         "pharmacyType": pharmacy_type
                     },
@@ -135,6 +136,7 @@ class LoginView(APIView):
             tenants_payload.append({
                 "id": str(ut.tenant.id),
                 "name": ut.tenant.name,
+                "currency": ut.tenant.currency,
                 "role": ut.role,
                 "businessType": business_type,
                 "pharmacyType": _tenant_pharmacy_type(ut.tenant, business_type=business_type),

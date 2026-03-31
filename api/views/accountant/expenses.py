@@ -6,7 +6,7 @@ from django.core.paginator import Paginator
 from datetime import datetime
 from decimal import Decimal
 
-from ...models import Expense, ExpenseCategory, Sale
+from ...models import Expense, ExpenseCategory, Sale, UserTenant
 from ...serializers import ExpenseSerializer, CreateExpenseSerializer, ExpenseSummarySerializer
 from ...utils.subscription_access import authorize_tenant_access
 from drf_spectacular.utils import extend_schema
@@ -26,6 +26,13 @@ class AccountantExpensesBaseView(APIView):
             return None, Response({"detail": error_message}, status=error_status)
         return tenant, None
 
+    def _expense_scope(self, tenant_id):
+        qs = Expense.objects.filter(tenant_id=tenant_id)
+        is_wholesale_tenant = UserTenant.objects.filter(tenant_id=tenant_id, role="OWNER").exists()
+        if is_wholesale_tenant:
+            qs = qs.exclude(created_by__department="RETAIL")
+        return qs
+
 
 class AccountantExpensesListCreateView(AccountantExpensesBaseView):
     """List and create expenses for a tenant."""
@@ -43,7 +50,7 @@ class AccountantExpensesListCreateView(AccountantExpensesBaseView):
         page = int(request.query_params.get('page', 1))
         page_size = int(request.query_params.get('page_size', 10))
 
-        qs = Expense.objects.filter(tenant_id=tenant_id).order_by('-expense_date')
+        qs = self._expense_scope(tenant_id).order_by('-expense_date')
 
         start_date = request.query_params.get('startDate')
         end_date = request.query_params.get('endDate')
@@ -137,7 +144,7 @@ class AccountantExpenseDetailView(AccountantExpensesBaseView):
             return auth_error
 
         try:
-            e = Expense.objects.get(id=expense_id, tenant_id=tenant_id)
+            e = self._expense_scope(tenant_id).get(id=expense_id)
             return Response({
                 'id': str(e.id),
                 'tenantId': str(e.tenant.id),
@@ -164,7 +171,7 @@ class AccountantExpenseDetailView(AccountantExpensesBaseView):
             return auth_error
 
         try:
-            e = Expense.objects.get(id=expense_id, tenant_id=tenant_id)
+            e = self._expense_scope(tenant_id).get(id=expense_id)
         except Expense.DoesNotExist:
             return Response({"detail": "Expense not found"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -211,7 +218,7 @@ class AccountantExpenseDetailView(AccountantExpensesBaseView):
             return auth_error
 
         try:
-            e = Expense.objects.get(id=expense_id, tenant_id=tenant_id)
+            e = self._expense_scope(tenant_id).get(id=expense_id)
             e.delete()
             return Response(status=status.HTTP_204_NO_CONTENT)
         except Expense.DoesNotExist:
@@ -234,7 +241,7 @@ class AccountantExpensesSummaryView(AccountantExpensesBaseView):
         start_date = request.query_params.get('startDate')
         end_date = request.query_params.get('endDate')
 
-        expenses_qs = Expense.objects.filter(tenant_id=tenant_id)
+        expenses_qs = self._expense_scope(tenant_id)
         sales_qs = Sale.objects.filter(tenant_id=tenant_id, status__in=['APPROVED', 'COMPLETED'])
 
         if start_date:
