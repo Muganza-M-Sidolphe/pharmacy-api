@@ -60,7 +60,8 @@ class SelectTenantView(APIView):
                     ),
                     "role": user_tenant.role,
                     "tenant_id": str(tenant.id),
-                    "tenant_name": tenant.name
+                    "tenant_name": tenant.name,
+                    "currency": tenant.currency,
                 },
                 "token": token
             }

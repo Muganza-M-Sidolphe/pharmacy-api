@@ -19,6 +19,25 @@ LOW_STOCK_THRESHOLD = 10
 class OwnerInventoryBaseView(APIView):
     permission_classes = [IsAuthenticated]
 
+    def _is_wholesale_tenant(self, tenant_id):
+        return UserTenant.objects.filter(tenant_id=tenant_id, role="OWNER").exists()
+
+    def _wholesale_medicines_qs(self, tenant_id):
+        medicines = Medicine.objects.filter(tenant_id=tenant_id)
+        if self._is_wholesale_tenant(tenant_id):
+            medicines = medicines.filter(
+                Q(created_by__department="WHOLESALE") | Q(created_by__isnull=True)
+            )
+        return medicines
+
+    def _wholesale_batches_qs(self, tenant_id):
+        batches = StockBatch.objects.filter(medicine__tenant_id=tenant_id)
+        if self._is_wholesale_tenant(tenant_id):
+            batches = batches.filter(
+                Q(created_by__department="WHOLESALE") | Q(created_by__isnull=True)
+            )
+        return batches
+
     def _get_tenant_id(self, request):
         tenant_id = request.query_params.get("tenantId") or request.data.get("tenantId")
         if not tenant_id:
@@ -57,10 +76,20 @@ class OwnerInventoryBaseView(APIView):
         return value, None
 
     def _build_summary(self, tenant_id):
-        medicines = Medicine.objects.filter(tenant_id=tenant_id)
+        medicines = self._wholesale_medicines_qs(tenant_id)
 
         low_stock_count = (
-            medicines.annotate(total_stock=Coalesce(Sum("batches__quantity"), Value(0)))
+            medicines.annotate(
+                total_stock=Coalesce(
+                    Sum(
+                        "batches__quantity",
+                        filter=Q(batches__created_by__department="WHOLESALE") | Q(batches__created_by__isnull=True),
+                    ),
+                    Value(0),
+                )
+                if self._is_wholesale_tenant(tenant_id)
+                else Coalesce(Sum("batches__quantity"), Value(0))
+            )
             .filter(total_stock__lt=LOW_STOCK_THRESHOLD)
             .count()
         )
@@ -70,7 +99,7 @@ class OwnerInventoryBaseView(APIView):
             output_field=DecimalField(max_digits=18, decimal_places=2),
         )
         total_value = (
-            StockBatch.objects.filter(medicine__tenant_id=tenant_id)
+            self._wholesale_batches_qs(tenant_id)
             .aggregate(total=Coalesce(Sum(inventory_value_expr), Decimal("0.00")))
             .get("total")
             or Decimal("0.00")
@@ -84,9 +113,19 @@ class OwnerInventoryBaseView(APIView):
         }
 
     def _build_list(self, tenant_id, query, page, page_size):
-        medicines = Medicine.objects.filter(tenant_id=tenant_id).annotate(
-            total_stock=Coalesce(Sum("batches__quantity"), Value(0))
-        )
+        medicines = self._wholesale_medicines_qs(tenant_id)
+        if self._is_wholesale_tenant(tenant_id):
+            medicines = medicines.annotate(
+                total_stock=Coalesce(
+                    Sum(
+                        "batches__quantity",
+                        filter=Q(batches__created_by__department="WHOLESALE") | Q(batches__created_by__isnull=True),
+                    ),
+                    Value(0),
+                )
+            )
+        else:
+            medicines = medicines.annotate(total_stock=Coalesce(Sum("batches__quantity"), Value(0)))
 
         if query:
             medicines = medicines.filter(
@@ -229,12 +268,12 @@ class OwnerInventoryMedicineDetailView(OwnerInventoryBaseView):
         if access_error:
             return access_error
 
-        medicine = Medicine.objects.filter(id=medicine_id, tenant_id=tenant_id).first()
+        medicine = self._wholesale_medicines_qs(tenant_id).filter(id=medicine_id).first()
         if not medicine:
             return Response({"detail": "Medicine not found"}, status=status.HTTP_404_NOT_FOUND)
 
         stock = (
-            StockBatch.objects.filter(medicine=medicine)
+            self._wholesale_batches_qs(tenant_id).filter(medicine=medicine)
             .aggregate(total=Coalesce(Sum("quantity"), Value(0)))
             .get("total", 0)
         )
