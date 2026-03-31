@@ -5,7 +5,7 @@ from .models import (
     StockBatch, Sale, SaleItem, ExpenseCategory, Expense,
     PartialPaymentReminderConfig, PartialPaymentReminderEvent,
     SubscriptionPaymentTransaction, RetailWholesaleRequest,
-    RetailWholesaleRequestItem,
+    RetailWholesaleRequestItem, SupportTicket,
 )
 
 
@@ -187,6 +187,14 @@ class RetailWholesaleRequestItemAdmin(admin.ModelAdmin):
     list_display = ("id", "request", "medicine", "quantity")
     search_fields = ("request__id", "medicine__brand_name")
     list_filter = ("request__status",)
+
+
+@admin.register(SupportTicket)
+class SupportTicketAdmin(admin.ModelAdmin):
+    list_display = ("title", "type", "priority", "status", "created_by", "created_at")
+    search_fields = ("title", "description", "created_by__email", "created_by__name")
+    list_filter = ("status", "type", "priority")
+    ordering = ("-created_at",)
 
 
 # Register User with custom admin

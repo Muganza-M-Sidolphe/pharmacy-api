@@ -17,6 +17,7 @@ from .owner.sales import OwnerSalesDashboardView, OwnerSalesSummaryView, OwnerDa
 from .owner.reports import OwnerSalesReportsDashboardView, OwnerUserManagementReportView, OwnerUsersSummaryCardsView
 from .owner.tenant_switch import OwnerTenantsListView, OwnerSwitchTenantView
 from .retail_wholesale import RetailWholesaleRequestListCreateView, RetailWholesaleRequestDecisionView
+from .support_tickets import SupportTicketViewSet
 
 # Import from legacy_views directly to avoid circular import
 from ..legacy_views import RegisterTenantView, RegisterOwnerView
@@ -89,6 +90,7 @@ __all__ = [
     'OwnerSettingsConsolidatedView',
     'RetailWholesaleRequestListCreateView',
     'RetailWholesaleRequestDecisionView',
+    'SupportTicketViewSet',
     'RegisterTenantView',
     'RegisterOwnerView'
 ]

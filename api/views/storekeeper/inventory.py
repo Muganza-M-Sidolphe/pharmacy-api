@@ -6,6 +6,7 @@ from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from datetime import timedelta
+from django.db.models import Q
 
 from ...models import Medicine, StockBatch, UserTenant
 from ...serializers import MedicineSerializer, AddMedicineWithStockSerializer, StockBatchSerializer
@@ -31,6 +32,9 @@ class StorekeeperBaseView(APIView):
 class InventoryListCreateView(StorekeeperBaseView):
     permission_classes = [IsAuthenticated]
     required_subscription_feature = "inventory_management"
+
+    def _is_wholesale_tenant(self, tenant_id):
+        return UserTenant.objects.filter(tenant_id=tenant_id, role="OWNER").exists()
 
     @extend_schema(
         description="Add a new medicine to inventory with initial stock batch",
@@ -67,6 +71,10 @@ class InventoryListCreateView(StorekeeperBaseView):
         page_size = int(request.query_params.get('page_size', 10))
 
         qs = Medicine.objects.filter(tenant_id=tenant_id)
+        if self._is_wholesale_tenant(tenant_id):
+            qs = qs.filter(
+                Q(created_by__department="WHOLESALE") | Q(created_by__isnull=True)
+            )
         if query:
             qs = qs.filter(brand_name__icontains=query) | qs.filter(generic_name__icontains=query)
 

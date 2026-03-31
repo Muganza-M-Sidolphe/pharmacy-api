@@ -174,6 +174,42 @@ class RetailWholesaleRequestItem(models.Model):
     quantity = models.PositiveIntegerField()
 
 
+class SupportTicket(models.Model):
+    TYPE_CHOICES = (
+        ("bug", "Bug"),
+        ("feature", "Feature"),
+    )
+    PRIORITY_CHOICES = (
+        ("low", "Low"),
+        ("medium", "Medium"),
+        ("high", "High"),
+    )
+    STATUS_CHOICES = (
+        ("open", "Open"),
+        ("in_progress", "In Progress"),
+        ("resolved", "Resolved"),
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    title = models.CharField(max_length=255)
+    description = models.TextField()
+    type = models.CharField(max_length=20, choices=TYPE_CHOICES)
+    priority = models.CharField(max_length=20, choices=PRIORITY_CHOICES)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="open")
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="support_tickets",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+
+    def __str__(self):
+        return f"{self.title} ({self.type})"
+
+
 class Notification(models.Model):
     """Notifications for a tenant or a specific user."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
