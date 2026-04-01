@@ -2,6 +2,7 @@ from .auth.login import LoginView
 from .auth.logout import LogoutView
 from .auth.select_tenant import SelectTenantView
 from .auth.change_password import ChangePasswordView
+from .auth.forgot_password import ForgotPasswordView, ResetPasswordView
 from .owner.users import CreateUserView, OwnerUserListView, OwnerUpdateUserView, OwnerUserStatusView, OwnerResetUserPasswordView, UsersSummaryView, SearchUsersView, RolesListView, OwnerUsersDashboardView
 from .owner.notifications import OwnerNotificationsView, OwnerNotificationDetailView, OwnerNotificationsDashboardView
 from .storekeeper.inventory import InventoryListCreateView
@@ -27,6 +28,8 @@ __all__ = [
     'LogoutView', 
     'SelectTenantView',
     'ChangePasswordView',
+    'ForgotPasswordView',
+    'ResetPasswordView',
     'CreateUserView',
     'OwnerUserListView',
     'OwnerUpdateUserView',
