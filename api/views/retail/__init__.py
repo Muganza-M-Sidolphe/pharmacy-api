@@ -11,6 +11,11 @@ from .views import (
     RetailSalesView,
     RetailStockView,
 )
+from .notifications import (
+    RetailRecentNotificationsView,
+    RetailMarkNotificationAsReadView,
+    RetailMarkAllNotificationsAsReadView,
+)
 
 __all__ = [
     "RetailMedicinesView",
@@ -24,4 +29,7 @@ __all__ = [
     "RetailDashboardView",
     "RetailReportsView",
     "RetailExpenseDeleteView",
+    "RetailRecentNotificationsView",
+    "RetailMarkNotificationAsReadView",
+    "RetailMarkAllNotificationsAsReadView",
 ]

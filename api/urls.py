@@ -1,7 +1,7 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
-from .views import RegisterTenantView,RegisterOwnerView, LoginView, LogoutView,SelectTenantView,CreateUserView, OwnerUserListView,OwnerUpdateUserView,OwnerUserStatusView,OwnerResetUserPasswordView,UsersSummaryView,SearchUsersView,RolesListView,ChangePasswordView, OwnerUsersDashboardView, OwnerNotificationsView, OwnerNotificationDetailView, OwnerNotificationsDashboardView, OwnerDashboardView, OwnerDashboardSummaryView, OwnerDashboardSalesTrendView, OwnerDashboardPartialInvoicesView, OwnerTenantsListView, OwnerSwitchTenantView, PharmacySettingsView, OwnerPharmaciesView, OwnerSettingsOverviewView, OwnerSettingsConsolidatedView, OwnerInvoicesListView, OwnerInvoiceDetailView, OwnerInvoicesSummaryView, OwnerInvoicesDashboardView, OwnerApprovePartialInvoiceView, OwnerRejectPartialInvoiceView, OwnerInventoryView, OwnerInventorySummaryView, OwnerInventoryMedicineDetailView, OwnerSalesDashboardView, OwnerSalesSummaryView, OwnerDailySalesTrendView, OwnerPaymentMethodsDistributionView, OwnerExportSalesView, OwnerSalesReportsDashboardView, OwnerUserManagementReportView, OwnerUsersSummaryCardsView, SupportTicketViewSet
+from .views import RegisterTenantView,RegisterOwnerView, LoginView, LogoutView,SelectTenantView,CreateUserView, OwnerUserListView,OwnerUpdateUserView,OwnerUserStatusView,OwnerResetUserPasswordView,UsersSummaryView,SearchUsersView,RolesListView,ChangePasswordView, ForgotPasswordView, ResetPasswordView, OwnerUsersDashboardView, OwnerNotificationsView, OwnerNotificationDetailView, OwnerNotificationsDashboardView, OwnerDashboardView, OwnerDashboardSummaryView, OwnerDashboardSalesTrendView, OwnerDashboardPartialInvoicesView, OwnerTenantsListView, OwnerSwitchTenantView, PharmacySettingsView, OwnerPharmaciesView, OwnerSettingsOverviewView, OwnerSettingsConsolidatedView, OwnerInvoicesListView, OwnerInvoiceDetailView, OwnerInvoicesSummaryView, OwnerInvoicesDashboardView, OwnerApprovePartialInvoiceView, OwnerRejectPartialInvoiceView, OwnerInventoryView, OwnerInventorySummaryView, OwnerInventoryMedicineDetailView, OwnerSalesDashboardView, OwnerSalesSummaryView, OwnerDailySalesTrendView, OwnerPaymentMethodsDistributionView, OwnerExportSalesView, OwnerSalesReportsDashboardView, OwnerUserManagementReportView, OwnerUsersSummaryCardsView, SupportTicketViewSet
 from .views.storekeeper.inventory import InventoryListCreateView
 from .views.storekeeper.expiry_alerts import ExpiryAlertsView, ExpiryAlertsSummaryView, ExpiryAlertsCriticalView, ExpiredBatchesView
 from .views.cashier.dashboard import CashierDashboardSummaryView, CashierStockAlertsView, CashierAvailableMedicinesView, CashierPendingRequestsView, CashierExpiryAlertsView
@@ -32,7 +32,7 @@ from .views.role_notifications import (
 )
 from .views.owner.partial_payments import OwnerPartialPaymentsListView, OwnerPartialPaymentSummaryView, OwnerApprovePartialPaymentView, OwnerRejectPartialPaymentView
 from .views.pricing import PricingPlansView, PricingCompareView, PricingFAQView, PricingCalculateUpgradeView, PricingRecommendationView, SubscriptionPlansView, SubscriptionPlanDetailView, SubscriptionHistoryView, SubscriptionUpgradeView, SubscriptionDowngradeView, SubscriptionCancelView, SubscriptionTrialRenewView, SubscriptionTrialStatusView, SubscriptionLimitsView, SubscriptionFeatureView, SubscriptionUsageView, SubscriptionPaymentView, SubscriptionPaymentStatusView, SubscriptionMtnWebhookView, SubscriptionInvoicesView, SubscriptionInvoiceDownloadView
-from .views.retail import RetailMedicinesView, RetailSalesView, RetailInsuranceSalesView, RetailExpensesView, RetailStockView, RetailExpiringMedicinesView, RetailLowStockView, RetailDashboardView, RetailReportsView, RetailExpenseDeleteView, CollaborativeRetailWholesaleCatalogView
+from .views.retail import RetailMedicinesView, RetailSalesView, RetailInsuranceSalesView, RetailExpensesView, RetailStockView, RetailExpiringMedicinesView, RetailLowStockView, RetailDashboardView, RetailReportsView, RetailExpenseDeleteView, CollaborativeRetailWholesaleCatalogView, RetailRecentNotificationsView, RetailMarkNotificationAsReadView, RetailMarkAllNotificationsAsReadView
 from .views.retail_wholesale import RetailWholesaleRequestListCreateView, RetailWholesaleRequestDecisionView
 from .views.super_admin import SuperAdminMetricsView, SuperAdminTenantsView, SuperAdminTenantDetailView, SuperAdminTenantStatusView, SuperAdminSubscriptionsView, SuperAdminSubscriptionDetailView, SuperAdminSubscriptionPlanView, SuperAdminExtendTrialView, SuperAdminExpireSubscriptionView, SuperAdminCancelSubscriptionView, SuperAdminUsersView, SuperAdminPlansView, SuperAdminPlanDetailView, SuperAdminAuditLogsView, SuperAdminSettingsView
 
@@ -42,6 +42,8 @@ router.register(r"support-tickets", SupportTicketViewSet, basename="support-tick
 urlpatterns = [
     path("register-tenant/", RegisterTenantView.as_view()),
     path("login/", LoginView.as_view(),name="login"),
+    path("forgot-password/", ForgotPasswordView.as_view(), name="forgot-password"),
+    path("reset-password/", ResetPasswordView.as_view(), name="reset-password"),
     path("token/refresh/", TokenRefreshView.as_view(), name="token-refresh"),
     path("pricing/plans/", PricingPlansView.as_view(), name="pricing-plans"),
     path("pricing/compare/", PricingCompareView.as_view(), name="pricing-compare"),
@@ -86,6 +88,9 @@ urlpatterns = [
     path("retails/dashboard/", RetailDashboardView.as_view(), name="retails-dashboard"),
     path("retails/reports", RetailReportsView.as_view(), name="retails-reports-no-slash"),
     path("retails/reports/", RetailReportsView.as_view(), name="retails-reports"),
+    path("retails/notifications/", RetailRecentNotificationsView.as_view(), name="retails-notifications"),
+    path("retails/notifications/<uuid:notification_id>/read/", RetailMarkNotificationAsReadView.as_view(), name="retails-mark-notification-read"),
+    path("retails/notifications/read-all/", RetailMarkAllNotificationsAsReadView.as_view(), name="retails-mark-all-notifications-read"),
     path("retail-wholesale/requests/", RetailWholesaleRequestListCreateView.as_view(), name="retail-wholesale-requests"),
     path("retail-wholesale/requests/<uuid:request_id>/decision/", RetailWholesaleRequestDecisionView.as_view(), name="retail-wholesale-request-decision"),
     path("super-admin/metrics/", SuperAdminMetricsView.as_view(), name="super-admin-metrics"),
