@@ -8,7 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from ...models import Expense, ExpenseCategory, Medicine, RetailWholesaleRequest, RetailWholesaleRequestItem, Sale, SaleItem, StockBatch, UserTenant
+from ...models import Expense, ExpenseCategory, Medicine, Notification, RetailWholesaleRequest, RetailWholesaleRequestItem, Sale, SaleItem, StockBatch, UserTenant
 from ...serializers import (
     CreateRetailWholesaleRequestSerializer,
     RetailWholesaleRequestSerializer,
@@ -32,6 +32,118 @@ def _tenant_business_type(tenant):
     if "PHARMACIST" in tenant_roles:
         return "RETAIL"
     return None
+
+
+def _notify_users(tenant_id, recipients, title, message):
+    notifications = []
+    seen = set()
+    for recipient in recipients:
+        if not recipient or recipient.id in seen:
+            continue
+        seen.add(recipient.id)
+        notifications.append(
+            Notification(
+                tenant_id=tenant_id,
+                recipient=recipient,
+                title=title,
+                message=message,
+            )
+        )
+    if notifications:
+        Notification.objects.bulk_create(notifications)
+
+
+def _users_for_role_and_department(tenant_id, role=None, department=None):
+    qs = UserTenant.objects.filter(tenant_id=tenant_id).select_related("user")
+    if role:
+        qs = qs.filter(role=role)
+    if department:
+        qs = qs.filter(user__department=department)
+    return [item.user for item in qs]
+
+
+def _notify_request_created(rw_request):
+    owner_users = _users_for_role_and_department(
+        rw_request.wholesale_tenant_id,
+        role="OWNER",
+        department="WHOLESALE",
+    )
+    _notify_users(
+        rw_request.wholesale_tenant_id,
+        owner_users,
+        "Collaborative Retail Request Created",
+        (
+            f"{rw_request.requested_by.name if rw_request.requested_by_id else 'Retail user'} "
+            f"created request {rw_request.id}. Owner approval is required."
+        ),
+    )
+
+
+def _notify_request_transition(rw_request, action):
+    request_label = str(rw_request.id)[:8].upper()
+    wholesale_tenant_id = rw_request.wholesale_tenant_id
+    retail_user = rw_request.requested_by
+
+    notification_map = {
+        "OWNER_APPROVE": {
+            "recipients": _users_for_role_and_department(wholesale_tenant_id, role="STORE_KEEPER", department="WHOLESALE"),
+            "title": "Retail Request Approved By Owner",
+            "message": f"Request {request_label} was approved by owner. Confirm stock next.",
+        },
+        "OWNER_REJECT": {
+            "recipients": [retail_user],
+            "title": "Retail Request Rejected",
+            "message": f"Your request {request_label} was rejected by owner.",
+        },
+        "STOREKEEPER_CONFIRM_STOCK": {
+            "recipients": _users_for_role_and_department(wholesale_tenant_id, role="PHARMACIST", department="WHOLESALE"),
+            "title": "Retail Request Stock Confirmed",
+            "message": f"Request {request_label} stock was confirmed. Pharmacist review is required.",
+        },
+        "PHARMACIST_APPROVE": {
+            "recipients": [retail_user],
+            "title": "Retail Request Awaiting Payment",
+            "message": f"Your request {request_label} was approved by pharmacist and is now awaiting payment.",
+        },
+        "PHARMACIST_REJECT": {
+            "recipients": [retail_user],
+            "title": "Retail Request Rejected By Pharmacist",
+            "message": f"Your request {request_label} was rejected by pharmacist.",
+        },
+        "RETAIL_PAY": {
+            "recipients": _users_for_role_and_department(wholesale_tenant_id, role="ACCOUNTANT", department="WHOLESALE"),
+            "title": "Retail Payment Submitted",
+            "message": f"Retail payment for request {request_label} was submitted. Accountant confirmation is required.",
+        },
+        "ACCOUNTANT_CONFIRM_PAYMENT": {
+            "recipients": (
+                _users_for_role_and_department(wholesale_tenant_id, role="STORE_KEEPER", department="WHOLESALE")
+                + ([retail_user] if retail_user else [])
+            ),
+            "title": "Retail Payment Confirmed",
+            "message": f"Payment for request {request_label} was confirmed. Order is moving to delivery preparation.",
+        },
+        "STOREKEEPER_PREPARE_ORDER": {
+            "recipients": [retail_user],
+            "title": "Retail Order Ready For Delivery",
+            "message": f"Your request {request_label} is ready for delivery confirmation.",
+        },
+        "RETAIL_CONFIRM_RECEIVED": {
+            "recipients": _users_for_role_and_department(wholesale_tenant_id, department="WHOLESALE"),
+            "title": "Retail Order Delivered",
+            "message": f"Retail request {request_label} was confirmed received and completed.",
+        },
+    }
+
+    payload = notification_map.get(action)
+    if not payload:
+        return
+    _notify_users(
+        wholesale_tenant_id,
+        payload["recipients"],
+        payload["title"],
+        payload["message"],
+    )
 
 
 def _request_invoice_number(rw_request):
@@ -374,6 +486,8 @@ class RetailWholesaleRequestListCreateView(APIView):
             .first()
         )
 
+        _notify_request_created(rw_request)
+
         return Response(RetailWholesaleRequestSerializer(rw_request).data, status=status.HTTP_201_CREATED)
 
 
@@ -462,5 +576,7 @@ class RetailWholesaleRequestDecisionView(APIView):
                 _finalize_completed_request(rw_request)
             except ValueError as exc:
                 return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        _notify_request_transition(rw_request, action)
 
         return Response(RetailWholesaleRequestSerializer(rw_request).data)

@@ -5,7 +5,7 @@ from .models import (
     StockBatch, Sale, SaleItem, ExpenseCategory, Expense,
     PartialPaymentReminderConfig, PartialPaymentReminderEvent,
     SubscriptionPaymentTransaction, RetailWholesaleRequest,
-    RetailWholesaleRequestItem, SupportTicket,
+    RetailWholesaleRequestItem, SupportTicket, PasswordResetToken,
 )
 
 
@@ -194,6 +194,14 @@ class SupportTicketAdmin(admin.ModelAdmin):
     list_display = ("title", "type", "priority", "status", "created_by", "created_at")
     search_fields = ("title", "description", "created_by__email", "created_by__name")
     list_filter = ("status", "type", "priority")
+    ordering = ("-created_at",)
+
+
+@admin.register(PasswordResetToken)
+class PasswordResetTokenAdmin(admin.ModelAdmin):
+    list_display = ("user", "expires_at", "used_at", "created_at")
+    search_fields = ("user__email", "token")
+    list_filter = ("used_at", "created_at")
     ordering = ("-created_at",)
 
 
