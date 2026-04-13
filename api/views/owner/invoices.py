@@ -487,42 +487,20 @@ class OwnerApprovePartialInvoiceView(OwnerInvoicesBaseView):
         except Sale.DoesNotExist:
             return Response({"detail": "Invoice not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        if sale.due_amount <= 0:
+        if sale.payment_option == "PARTIAL" and sale.due_amount > 0:
             return Response(
-                {"detail": "Fully paid invoices are already completed and do not need owner approval"},
-                status=status.HTTP_400_BAD_REQUEST,
+                {
+                    "detail": (
+                        "Use /api/owner/partial-payments/<invoice_id>/approve/ for "
+                        "partial-payment approval workflow."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
             )
-
-        if sale.payment_option != "PARTIAL":
-            return Response(
-                {"detail": "Owner can only approve partial-payment invoices"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if sale.status == "REJECTED":
-            return Response(
-                {"detail": "Rejected invoice cannot be approved"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Final owner confirmation for loan/remaining due.
-        sale.status = "COMPLETED"
-        sale.save(update_fields=["status", "updated_at"])
-
-        self._notify_other_approvers(
-            tenant_id=tenant_id,
-            actor_user=request.user,
-            invoice=sale,
-            action="approve",
-        )
 
         return Response(
-            {
-                "message": "Partial-payment invoice approved by owner",
-                "invoiceId": str(sale.id),
-                "status": sale.status,
-            },
-            status=status.HTTP_200_OK,
+            {"detail": "Owner invoice approval is not available for this invoice"},
+            status=status.HTTP_400_BAD_REQUEST,
         )
 
 
@@ -540,41 +518,23 @@ class OwnerRejectPartialInvoiceView(OwnerInvoicesBaseView):
         if access_error:
             return access_error
 
-        reason = request.data.get("reason", "").strip()
-
         try:
             sale = Sale.objects.get(id=invoice_id, tenant_id=tenant_id)
         except Sale.DoesNotExist:
             return Response({"detail": "Invoice not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        if sale.due_amount <= 0:
+        if sale.payment_option == "PARTIAL" and sale.due_amount > 0:
             return Response(
-                {"detail": "Fully paid completed invoices cannot be rejected"},
-                status=status.HTTP_400_BAD_REQUEST,
+                {
+                    "detail": (
+                        "Use /api/owner/partial-payments/<invoice_id>/reject/ for "
+                        "partial-payment approval workflow."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
             )
-
-        if sale.payment_option != "PARTIAL":
-            return Response(
-                {"detail": "Owner can only reject partial-payment invoices"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        sale.status = "REJECTED"
-        sale.save(update_fields=["status", "updated_at"])
-
-        self._notify_other_approvers(
-            tenant_id=tenant_id,
-            actor_user=request.user,
-            invoice=sale,
-            action="reject",
-            reason=reason,
-        )
 
         return Response(
-            {
-                "message": "Partial-payment invoice rejected by owner",
-                "invoiceId": str(sale.id),
-                "status": sale.status,
-            },
-            status=status.HTTP_200_OK,
+            {"detail": "Owner invoice rejection is not available for this invoice"},
+            status=status.HTTP_400_BAD_REQUEST,
         )

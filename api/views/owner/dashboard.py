@@ -254,10 +254,35 @@ class OwnerDashboardView(OwnerDashboardBaseView):
         if partial_invoices_response.status_code != status.HTTP_200_OK:
             return partial_invoices_response
 
+        tenant_id, error = self._get_tenant_id(request)
+        if error:
+            return error
+
+        pending_approvals_qs = Sale.objects.filter(
+            tenant_id=tenant_id,
+            status="APPROVED",
+            payment_option="PARTIAL",
+            due_amount__gt=0,
+            pharmacist_approval_status__in=["PENDING", None],
+            owner_approval_status__in=["PENDING", None],
+        )
+        total_pending_due = (
+            pending_approvals_qs.aggregate(total=Coalesce(Sum("due_amount"), Decimal("0.00")))
+            .get("total")
+            or Decimal("0.00")
+        )
+        tenant = Tenant.objects.only("id", "currency").filter(id=tenant_id).first()
+        currency = tenant.currency if tenant else "USD"
+
         return Response(
             {
                 "ownerName": request.user.name,
                 "summary": summary_response.data,
+                "quickSummary": {
+                    "pendingApprovals": pending_approvals_qs.count(),
+                    "totalPendingAmount": str(total_pending_due),
+                    "currency": currency,
+                },
                 "salesTrend": trend_response.data,
                 "partiallyPaidInvoices": partial_invoices_response.data,
             }
