@@ -42,9 +42,14 @@ def _env_list(key, default=None):
 SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-change-me-before-production")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = _env_bool("DEBUG", True)
+DEBUG = False
 
-ALLOWED_HOSTS = _env_list("ALLOWED_HOSTS", ["localhost", "127.0.0.1"])
+ALLOWED_HOSTS = [
+    'pharmalinkr.com',
+    'www.pharmalinkr.com',
+    'localhost',
+    '127.0.0.1',
+]
 
 
 # Application definition
@@ -189,10 +194,8 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
-STATIC_URL = 'static/'
-STATIC_ROOT = BASE_DIR / "staticfiles"
-MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
+STATIC_URL = 'static/' 
+STATIC_ROOT = '/var/www/pharmacy-api/static/'
 
 # Email (used by partial payment reminders)
 EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend")
