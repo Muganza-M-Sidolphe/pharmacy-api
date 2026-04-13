@@ -69,7 +69,12 @@ class CreateUserView(APIView):
             )
 
         max_users = get_subscription_limit(tenant, "users")
-        current_user_count = UserTenant.objects.filter(tenant_id=tenant_id).count()
+        # Subscription seats should count only active users so an owner can
+        # deactivate an old account and replace it without losing history.
+        current_user_count = UserTenant.objects.filter(
+            tenant_id=tenant_id,
+            user__is_active=True,
+        ).count()
         if max_users is not None and current_user_count >= max_users:
             return Response(
                 {"error": f"Current subscription plan allows only {max_users} users for this tenant"},

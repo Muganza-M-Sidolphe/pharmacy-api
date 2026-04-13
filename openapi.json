@@ -2091,6 +2091,19 @@
                 }
             }
         },
+        "/api/forgot-password/": {
+            "post": {
+                "operationId": "forgot_password_create",
+                "tags": [
+                    "forgot-password"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/login/": {
             "post": {
                 "operationId": "login_create",
@@ -4676,6 +4689,19 @@
                 }
             }
         },
+        "/api/reset-password/": {
+            "post": {
+                "operationId": "reset_password_create",
+                "tags": [
+                    "reset-password"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/retail-wholesale/requests/": {
             "get": {
                 "operationId": "retail_wholesale_requests_retrieve",
@@ -5184,6 +5210,95 @@
                 "operationId": "retails_medicines_create_2",
                 "tags": [
                     "retails"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/retails/notifications/": {
+            "get": {
+                "operationId": "retails_notifications_retrieve",
+                "description": "Get recent notifications for retail portal",
+                "tags": [
+                    "notifications",
+                    "retail"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/retails/notifications/{notification_id}/read/": {
+            "post": {
+                "operationId": "retails_notifications_read_create",
+                "description": "Mark retail notification as read",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "notification_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "notifications",
+                    "retail"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/retails/notifications/read-all/": {
+            "post": {
+                "operationId": "retails_notifications_read_all_create",
+                "description": "Mark all retail notifications as read",
+                "tags": [
+                    "notifications",
+                    "retail"
                 ],
                 "security": [
                     {

@@ -164,9 +164,14 @@ class AccountantDashboardPaymentsView(AccountantDashboardBaseView):
         }
 
     def _get_selected_for_invoice(self, tenant_id):
-        """Get sales selected for invoicing (pending approval by accountant)"""
+        """Get partial invoices currently awaiting accountant action."""
         sales = Sale.objects.filter(
-            tenant_id=tenant_id, status="PENDING"
+            tenant_id=tenant_id,
+            status="APPROVED",
+            payment_option="PARTIAL",
+            due_amount__gt=0,
+            owner_approval_status="APPROVED",
+            pharmacist_approval_status="APPROVED",
         ).order_by('-created_at')[:10]
 
         total_amount = sales.aggregate(Sum('total_amount'))['total_amount__sum'] or Decimal('0')
@@ -193,14 +198,14 @@ class AccountantDashboardPaymentsView(AccountantDashboardBaseView):
         # Get accountant-stage partial payment sales (after owner + pharmacist approvals)
         partial_sales = Sale.objects.filter(
             tenant_id=tenant_id,
+            status="APPROVED",
             payment_option="PARTIAL",
             due_amount__gt=0,
             owner_approval_status="APPROVED",
             pharmacist_approval_status="APPROVED",
         )
 
-        # Categorize by status
-        pending_count = partial_sales.filter(status="PENDING").count()
+        pending_count = partial_sales.count()
         total_count = partial_sales.count()
 
         items = []
@@ -240,7 +245,7 @@ class AccountantDashboardPaymentsView(AccountantDashboardBaseView):
             tenant_id=tenant_id,
             payment_option="PARTIAL",
             due_amount__gt=0,
-            status__in=["PENDING", "APPROVED"],
+            status="APPROVED",
             owner_approval_status="APPROVED",
             pharmacist_approval_status="APPROVED",
         ).count()

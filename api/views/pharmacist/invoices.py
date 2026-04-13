@@ -284,6 +284,17 @@ class PharmacistApproveInvoiceView(PharmacistBaseView):
         except Sale.DoesNotExist:
             return Response({"error": "Invoice not found"}, status=status.HTTP_404_NOT_FOUND)
 
+        if sale.payment_option == "PARTIAL" and sale.due_amount > 0:
+            return Response(
+                {
+                    "detail": (
+                        "Use /api/pharmacist/partial-payments/<invoice_id>/approve/ for "
+                        "partial-payment approval workflow."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
         # Only allow approval if invoice is approved by accountant and not already completed
         if sale.status not in ["APPROVED", "COMPLETED"]:
             return Response({"error": "Invoice must be approved by accountant first"}, status=status.HTTP_400_BAD_REQUEST)
@@ -428,6 +439,19 @@ class PharmacistApprovePaymentView(PharmacistBaseView):
             sale = Sale.objects.select_related("approved_by").get(id=invoice_id, tenant_id=tenant_id)
         except Sale.DoesNotExist:
             return Response({"error": "Invoice not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if sale.payment_option == "PARTIAL" and sale.due_amount > 0:
+            return Response(
+                {
+                    "detail": (
+                        "Use accountant-stage endpoints for partial-payment collection: "
+                        "/api/accountant/invoices/<sale_id>/approve/, "
+                        "/api/accountant/invoices/<sale_id>/partial-payment/, or "
+                        "/api/accountant/invoices/<sale_id>/mark-paid/."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
         approval_status = request.data.get("approvalStatus")
 
