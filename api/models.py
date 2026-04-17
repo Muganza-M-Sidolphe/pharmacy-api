@@ -130,6 +130,18 @@ class RetailWholesaleRequest(models.Model):
         ("COMPLETED", "Completed"),
         ("REJECTED", "Rejected"),
     )
+    PAYMENT_OPTION_CHOICES = (
+        ("FULL", "Full Payment"),
+        ("PARTIAL", "Partial Payment"),
+        ("CREDIT", "Credit"),
+    )
+    PAYMENT_METHOD_CHOICES = (
+        ("CASH", "Cash"),
+        ("CARD", "Card"),
+        ("UPI", "UPI"),
+        ("MOBILE_MONEY", "Mobile Money"),
+        ("BANK_TRANSFER", "Bank Transfer"),
+    )
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     retail_tenant = models.ForeignKey(
@@ -150,6 +162,9 @@ class RetailWholesaleRequest(models.Model):
         related_name="retail_wholesale_requests_created",
     )
     status = models.CharField(max_length=32, choices=STATUS_CHOICES, default="PENDING")
+    payment_option = models.CharField(max_length=20, choices=PAYMENT_OPTION_CHOICES, default="FULL")
+    payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES, default="BANK_TRANSFER")
+    paid_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     note = models.TextField(blank=True, null=True)
     decided_by = models.ForeignKey(
         User,

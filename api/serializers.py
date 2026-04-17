@@ -1027,6 +1027,11 @@ class RetailWholesaleRequestItemInputSerializer(serializers.Serializer):
 
 class CreateRetailWholesaleRequestSerializer(serializers.Serializer):
     tenantId = serializers.UUIDField()
+    paymentOption = serializers.ChoiceField(choices=["FULL", "PARTIAL", "CREDIT"], default="FULL")
+    paymentMethod = serializers.ChoiceField(
+        choices=["CASH", "CARD", "UPI", "MOBILE_MONEY", "BANK_TRANSFER"],
+        default="BANK_TRANSFER",
+    )
     note = serializers.CharField(required=False, allow_blank=True)
     items = RetailWholesaleRequestItemInputSerializer(many=True)
 
@@ -1089,6 +1094,9 @@ class RetailWholesaleRequestSerializer(serializers.ModelSerializer):
     wholesaleTenantName = serializers.CharField(source="wholesale_tenant.name", read_only=True)
     requestedBy = serializers.UUIDField(source="requested_by.id", read_only=True)
     requestedByName = serializers.CharField(source="requested_by.name", read_only=True)
+    paymentOption = serializers.CharField(source="payment_option", read_only=True)
+    paymentMethod = serializers.CharField(source="payment_method", read_only=True)
+    paidAmount = serializers.DecimalField(source="paid_amount", max_digits=12, decimal_places=2, read_only=True)
     decidedBy = serializers.UUIDField(source="decided_by.id", read_only=True, allow_null=True)
     decidedByName = serializers.CharField(source="decided_by.name", read_only=True, allow_null=True)
     decisionNote = serializers.CharField(source="decision_note", read_only=True, allow_null=True)
@@ -1107,6 +1115,9 @@ class RetailWholesaleRequestSerializer(serializers.ModelSerializer):
             "wholesaleTenantName",
             "requestedBy",
             "requestedByName",
+            "paymentOption",
+            "paymentMethod",
+            "paidAmount",
             "status",
             "note",
             "decisionNote",

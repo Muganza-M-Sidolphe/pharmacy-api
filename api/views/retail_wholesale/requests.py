@@ -105,6 +105,11 @@ def _notify_request_transition(rw_request, action):
             "title": "Retail Request Awaiting Payment",
             "message": f"Your request {request_label} was approved by pharmacist and is now awaiting payment.",
         },
+        "PHARMACIST_APPROVE_CREDIT": {
+            "recipients": _users_for_role_and_department(wholesale_tenant_id, role="ACCOUNTANT", department="WHOLESALE"),
+            "title": "Retail Credit Request Awaiting Accountant Confirmation",
+            "message": f"Request {request_label} was approved by pharmacist under CREDIT terms. Accountant confirmation is required next.",
+        },
         "PHARMACIST_REJECT": {
             "recipients": [retail_user],
             "title": "Retail Request Rejected By Pharmacist",
@@ -148,6 +153,15 @@ def _notify_request_transition(rw_request, action):
 
 def _request_invoice_number(rw_request):
     return f"RWR-{timezone.now().strftime('%Y%m%d%H%M%S')}-{str(rw_request.id)[:6].upper()}"
+
+
+def _estimate_request_total(rw_request):
+    total = Decimal("0.00")
+    for item in rw_request.items.select_related("medicine").all():
+        batch = _wholesale_inventory_batches(item.medicine).first()
+        unit_price = batch.selling_price if batch else Decimal("0.00")
+        total += unit_price * item.quantity
+    return total
 
 
 def _wholesale_inventory_batches(medicine):
@@ -195,6 +209,11 @@ def _create_wholesale_sale_and_reduce_inventory(rw_request):
 
     allocations = _allocate_request_batches(rw_request)
     subtotal = Decimal("0.00")
+    requested_total = Decimal("0.00")
+    collected_amount = Decimal("0.00")
+    sale_status = "COMPLETED"
+    sale_payment_option = rw_request.payment_option
+
     sale = Sale.objects.create(
         tenant=rw_request.wholesale_tenant,
         cashier=None,
@@ -207,15 +226,21 @@ def _create_wholesale_sale_and_reduce_inventory(rw_request):
         customer_phone=getattr(rw_request.requested_by, "email", None),
         notes=f"Generated from collaborative retail request {rw_request.id}",
         status="COMPLETED",
-        payment_option="FULL",
-        payment_method="BANK_TRANSFER",
+        payment_option=rw_request.payment_option,
+        payment_method=rw_request.payment_method,
         currency=(rw_request.wholesale_tenant.currency or "USD"),
         paid_amount=Decimal("0.00"),
         due_amount=Decimal("0.00"),
         total_amount=Decimal("0.00"),
         subtotal=Decimal("0.00"),
         approved_at=timezone.now(),
-        approved_by=rw_request.decided_by,
+        approved_by=(
+            rw_request.decided_by
+            if rw_request.decided_by_id and getattr(rw_request.decided_by, "department", None) == "WHOLESALE"
+            else None
+        ),
+        owner_approval_status="APPROVED",
+        pharmacist_approval_status="APPROVED",
     )
 
     for allocation in allocations:
@@ -235,11 +260,32 @@ def _create_wholesale_sale_and_reduce_inventory(rw_request):
         batch.save(update_fields=["quantity"])
         subtotal += item_subtotal
 
-    sale.subtotal = subtotal
-    sale.total_amount = subtotal
-    sale.paid_amount = subtotal
-    sale.due_amount = Decimal("0.00")
-    sale.save(update_fields=["subtotal", "total_amount", "paid_amount", "due_amount", "updated_at"])
+    requested_total = subtotal
+    if rw_request.payment_option == "FULL":
+        collected_amount = requested_total
+        sale_status = "COMPLETED"
+    elif rw_request.payment_option == "PARTIAL":
+        collected_amount = min(max(rw_request.paid_amount, Decimal("0.00")), requested_total)
+        sale_status = "APPROVED" if collected_amount < requested_total else "COMPLETED"
+    elif rw_request.payment_option == "CREDIT":
+        collected_amount = Decimal("0.00")
+        sale_status = "APPROVED"
+
+    sale.subtotal = requested_total
+    sale.total_amount = requested_total
+    sale.paid_amount = collected_amount
+    sale.due_amount = requested_total - collected_amount
+    sale.status = sale_status
+    sale.save(
+        update_fields=[
+            "subtotal",
+            "total_amount",
+            "paid_amount",
+            "due_amount",
+            "status",
+            "updated_at",
+        ]
+    )
     return sale
 
 
@@ -465,6 +511,8 @@ class RetailWholesaleRequestListCreateView(APIView):
             retail_tenant_id=data["tenantId"],
             wholesale_tenant_id=data["tenantId"],
             requested_by=request.user,
+            payment_option=data["paymentOption"],
+            payment_method=data["paymentMethod"],
             note=data.get("note"),
         )
 
@@ -560,6 +608,48 @@ class RetailWholesaleRequestDecisionView(APIView):
         if action in {"RETAIL_PAY", "RETAIL_CONFIRM_RECEIVED"} and rw_request.requested_by_id != request.user.id:
             return Response({"detail": "Only request creator can perform this action"}, status=status.HTTP_403_FORBIDDEN)
 
+        if action == "RETAIL_PAY":
+            estimated_total = _estimate_request_total(rw_request)
+            payment_amount_raw = request.data.get("paidAmount")
+            if rw_request.payment_option == "FULL":
+                paid_amount = estimated_total
+                if payment_amount_raw not in (None, ""):
+                    try:
+                        paid_amount = Decimal(str(payment_amount_raw))
+                    except Exception:
+                        return Response({"detail": "paidAmount must be a valid number"}, status=status.HTTP_400_BAD_REQUEST)
+                    if paid_amount != estimated_total:
+                        return Response(
+                            {"detail": "FULL payment requests must be paid in full"},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+            elif rw_request.payment_option == "PARTIAL":
+                if payment_amount_raw in (None, ""):
+                    return Response(
+                        {"detail": "paidAmount is required for PARTIAL payment requests"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                try:
+                    paid_amount = Decimal(str(payment_amount_raw))
+                except Exception:
+                    return Response({"detail": "paidAmount must be a valid number"}, status=status.HTTP_400_BAD_REQUEST)
+                if paid_amount <= 0 or paid_amount > estimated_total:
+                    return Response(
+                        {"detail": "paidAmount must be greater than 0 and not exceed total amount"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            else:
+                return Response(
+                    {"detail": "CREDIT requests do not require RETAIL_PAY action"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            payment_method = request.data.get("paymentMethod")
+            rw_request.paid_amount = paid_amount
+            if payment_method:
+                rw_request.payment_method = payment_method
+            rw_request.save(update_fields=["paid_amount", "payment_method", "updated_at"])
+
         rw_request.status = rule["next_status"]
         rw_request.decision_note = request.data.get("note")
         rw_request.decided_by = request.user
@@ -567,7 +657,10 @@ class RetailWholesaleRequestDecisionView(APIView):
         rw_request.save(update_fields=["status", "decision_note", "decided_by", "decided_at", "updated_at"])
 
         if rw_request.status == "PHARMACIST_APPROVED":
-            rw_request.status = "AWAITING_PAYMENT"
+            if rw_request.payment_option == "CREDIT":
+                rw_request.status = "PAID_PENDING_CONFIRMATION"
+            else:
+                rw_request.status = "AWAITING_PAYMENT"
             rw_request.save(update_fields=["status", "updated_at"])
         elif rw_request.status == "DELIVERED":
             rw_request.status = "COMPLETED"
@@ -577,6 +670,10 @@ class RetailWholesaleRequestDecisionView(APIView):
             except ValueError as exc:
                 return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        _notify_request_transition(rw_request, action)
+        notification_action = action
+        if action == "PHARMACIST_APPROVE" and rw_request.payment_option == "CREDIT":
+            notification_action = "PHARMACIST_APPROVE_CREDIT"
+
+        _notify_request_transition(rw_request, notification_action)
 
         return Response(RetailWholesaleRequestSerializer(rw_request).data)
