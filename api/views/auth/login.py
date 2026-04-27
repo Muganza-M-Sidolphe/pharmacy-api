@@ -68,6 +68,7 @@ class LoginView(APIView):
                 "status": "MUST_CHANGE_PASSWORD",
                 "message": "You must change your password before continuing",
                 "userId": str(user.id),
+                "name":user.name,
                 "email": user.email,
                 "department": user.department,
                 "isCollaborativeRetail": False,
@@ -86,6 +87,7 @@ class LoginView(APIView):
                 "mode": "SUPER_ADMIN",
                 "data": {
                     "token": token,
+                    "name":user.name,
                     "role": "SUPER_ADMIN",
                     "department": user.department,
                     "isCollaborativeRetail": False,
@@ -114,6 +116,7 @@ class LoginView(APIView):
                 "mode": "AUTO",
                 "data": {
                     "token": token,
+                    "name":user.name,
                     "tenant": {
                         "id": str(ut.tenant.id),
                         "name": ut.tenant.name,
@@ -145,6 +148,7 @@ class LoginView(APIView):
 
         return Response({
             "status": "CHOOSE_TENANT",
+            "name":user.name,
             "department": user.department,
             "isCollaborativeRetail": False,
             "tenants": tenants_payload,

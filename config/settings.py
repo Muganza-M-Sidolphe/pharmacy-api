@@ -42,7 +42,7 @@ def _env_list(key, default=None):
 SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-change-me-before-production")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
+DEBUG = True
 
 ALLOWED_HOSTS = [
     'pharmalinkr.com',
