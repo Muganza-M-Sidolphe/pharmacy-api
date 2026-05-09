@@ -381,9 +381,15 @@ class AccountantInvoicesSummaryView(AccountantInvoicesBaseView):
         if auth_error:
             return auth_error
 
-        invoices = Sale.objects.filter(
-            tenant_id=tenant_id,
+        invoices = self._wholesale_sales_queryset(tenant_id).filter(
             status__in=['APPROVED', 'COMPLETED']
+        ).filter(
+            Q(payment_option__in=['FULL', 'CREDIT']) |
+            Q(
+                payment_option='PARTIAL',
+                owner_approval_status='APPROVED',
+                pharmacist_approval_status='APPROVED',
+            )
         )
 
         total_invoices = invoices.count()
@@ -404,6 +410,7 @@ class AccountantInvoicesSummaryView(AccountantInvoicesBaseView):
             'totalAmount': str(total_amount),
             'paidAmount': str(paid_amount),
             'pendingAmount': str(pending_amount),
+            'remainingAmount': str(pending_amount),
             'unpaidInvoices': unpaid_invoices,
             'partialPaymentInvoices': partial_payment_invoices,
             'fullyPaidInvoices': fully_paid_invoices,

@@ -289,6 +289,7 @@ class SaleSerializer(serializers.ModelSerializer):
     discountAmount = serializers.DecimalField(source='discount_amount', max_digits=12, decimal_places=2)
     paidAmount = serializers.DecimalField(source='paid_amount', max_digits=12, decimal_places=2)
     dueAmount = serializers.DecimalField(source='due_amount', max_digits=12, decimal_places=2)
+    remainingAmount = serializers.DecimalField(source='due_amount', max_digits=12, decimal_places=2, read_only=True)
     totalAmount = serializers.DecimalField(source='total_amount', max_digits=12, decimal_places=2)
     currency = serializers.CharField(read_only=True)
     status = serializers.SerializerMethodField()
@@ -349,7 +350,7 @@ class SaleSerializer(serializers.ModelSerializer):
     class Meta:
         model = Sale
         fields = ['id', 'tenantId', 'cashierId', 'invoiceNumber', 'customerName', 'customerPhone', 'notes', 'status', 
-                  'paymentOption', 'paymentMethod', 'subtotal', 'discountAmount', 'paidAmount', 'dueAmount', 
+                  'paymentOption', 'paymentMethod', 'subtotal', 'discountAmount', 'paidAmount', 'dueAmount', 'remainingAmount',
                   'totalAmount', 'currency', 'items', 'createdAt', 'updatedAt', 'approvedAt', 'approvedBy', 'approvedByName', 'approvedByRole']
         read_only_fields = ['id', 'invoiceNumber', 'status', 'createdAt', 'updatedAt', 'approvedAt', 'approvedBy']
 
@@ -1141,7 +1142,9 @@ class RetailWholesaleRequestSerializer(serializers.ModelSerializer):
     requestedByName = serializers.CharField(source="requested_by.name", read_only=True)
     paymentOption = serializers.CharField(source="payment_option", read_only=True)
     paymentMethod = serializers.CharField(source="payment_method", read_only=True)
-    paidAmount = serializers.DecimalField(source="paid_amount", max_digits=12, decimal_places=2, read_only=True)
+    totalAmount = serializers.SerializerMethodField()
+    paidAmount = serializers.SerializerMethodField()
+    remainingAmount = serializers.SerializerMethodField()
     decidedBy = serializers.UUIDField(source="decided_by.id", read_only=True, allow_null=True)
     decidedByName = serializers.CharField(source="decided_by.name", read_only=True, allow_null=True)
     decisionNote = serializers.CharField(source="decision_note", read_only=True, allow_null=True)
@@ -1149,6 +1152,38 @@ class RetailWholesaleRequestSerializer(serializers.ModelSerializer):
     createdAt = serializers.DateTimeField(source="created_at", read_only=True)
     updatedAt = serializers.DateTimeField(source="updated_at", read_only=True)
     items = RetailWholesaleRequestItemSerializer(many=True, read_only=True)
+
+    def _estimated_total(self, obj):
+        total = Decimal("0.00")
+        for item in obj.items.all():
+            batch = (
+                StockBatch.objects.filter(medicine=item.medicine)
+                .filter(Q(created_by__department="WHOLESALE") | Q(created_by__isnull=True))
+                .order_by("-created_at")
+                .first()
+            )
+            unit_price = batch.selling_price if batch else Decimal("0.00")
+            total += unit_price * item.quantity
+        return total
+
+    def get_paidAmount(self, obj):
+        if obj.wholesale_sale_id and obj.wholesale_sale:
+            return str(obj.wholesale_sale.paid_amount)
+        return str(obj.paid_amount)
+
+    def get_totalAmount(self, obj):
+        if obj.wholesale_sale_id and obj.wholesale_sale:
+            return str(obj.wholesale_sale.total_amount)
+        return str(self._estimated_total(obj))
+
+    def get_remainingAmount(self, obj):
+        if obj.wholesale_sale_id and obj.wholesale_sale:
+            return str(obj.wholesale_sale.due_amount)
+        estimated_total = self._estimated_total(obj)
+        remaining = estimated_total - (obj.paid_amount or Decimal("0.00"))
+        if remaining < 0:
+            remaining = Decimal("0.00")
+        return str(remaining)
 
     class Meta:
         model = RetailWholesaleRequest
@@ -1162,7 +1197,9 @@ class RetailWholesaleRequestSerializer(serializers.ModelSerializer):
             "requestedByName",
             "paymentOption",
             "paymentMethod",
+            "totalAmount",
             "paidAmount",
+            "remainingAmount",
             "status",
             "note",
             "decisionNote",
