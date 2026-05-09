@@ -55,6 +55,12 @@ class OwnerDashboardBaseView(APIView):
 
         return parsed, None
 
+    def _owner_sales_queryset(self, tenant_id):
+        return Sale.objects.filter(
+            tenant_id=tenant_id,
+            status__in=["APPROVED", "COMPLETED"],
+        ).exclude(cashier__department="RETAIL")
+
 
 class OwnerDashboardSummaryView(OwnerDashboardBaseView):
     @extend_schema(
@@ -83,7 +89,7 @@ class OwnerDashboardSummaryView(OwnerDashboardBaseView):
         )
 
         total_sales = (
-            Sale.objects.filter(tenant_id=tenant_id, status__in=["APPROVED", "COMPLETED"])
+            self._owner_sales_queryset(tenant_id)
             .aggregate(total=Coalesce(Sum("total_amount"), Decimal("0.00")))
             .get("total")
             or Decimal("0.00")
@@ -139,9 +145,7 @@ class OwnerDashboardSalesTrendView(OwnerDashboardBaseView):
         start_date = today - timedelta(days=days - 1)
 
         daily_sales = (
-            Sale.objects.filter(
-                tenant_id=tenant_id,
-                status__in=["APPROVED", "COMPLETED"],
+            self._owner_sales_queryset(tenant_id).filter(
                 created_at__date__gte=start_date,
                 created_at__date__lte=today,
             )
@@ -198,11 +202,9 @@ class OwnerDashboardPartialInvoicesView(OwnerDashboardBaseView):
         if page_size_error:
             return page_size_error
 
-        invoices_qs = Sale.objects.filter(
-            tenant_id=tenant_id,
+        invoices_qs = self._owner_sales_queryset(tenant_id).filter(
             payment_option="PARTIAL",
             due_amount__gt=0,
-            status__in=["APPROVED", "COMPLETED"],
         ).order_by("-created_at")
 
         total_count = invoices_qs.count()

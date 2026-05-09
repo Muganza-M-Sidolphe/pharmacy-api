@@ -48,6 +48,9 @@ class AccountantDashboardBaseView(APIView):
             return None, tenant_id, Response({"error": error_message}, status=error_status)
         return tenant, tenant_id, None
 
+    def _wholesale_sales_queryset(self, tenant_id):
+        return Sale.objects.filter(tenant_id=tenant_id).exclude(cashier__department="RETAIL")
+
 
 class AccountantDashboardPaymentsView(AccountantDashboardBaseView):
     """Get complete accountant dashboard with all payment-related metrics"""
@@ -88,8 +91,7 @@ class AccountantDashboardPaymentsView(AccountantDashboardBaseView):
 
     def _get_pending_partial_payments(self, tenant_id):
         """Get pending partial payments"""
-        sales = Sale.objects.filter(
-            tenant_id=tenant_id,
+        sales = self._wholesale_sales_queryset(tenant_id).filter(
             status="APPROVED",
             payment_option="PARTIAL",
             due_amount__gt=0,
@@ -122,8 +124,8 @@ class AccountantDashboardPaymentsView(AccountantDashboardBaseView):
     def _get_overdue_payments(self, tenant_id):
         """Get overdue payments (more than 30 days past approved date)"""
         thirty_days_ago = datetime.now() - timedelta(days=30)
-        sales = Sale.objects.filter(
-            tenant_id=tenant_id, status="APPROVED", due_amount__gt=0, approved_at__lt=thirty_days_ago
+        sales = self._wholesale_sales_queryset(tenant_id).filter(
+            status="APPROVED", due_amount__gt=0, approved_at__lt=thirty_days_ago
         ).order_by('-approved_at')[:10]
 
         items = []
@@ -151,8 +153,8 @@ class AccountantDashboardPaymentsView(AccountantDashboardBaseView):
         today = date.today()
         period_start = today - timedelta(days=30)
 
-        paid_sales = Sale.objects.filter(
-            tenant_id=tenant_id, status="COMPLETED", created_at__date__gte=period_start
+        paid_sales = self._wholesale_sales_queryset(tenant_id).filter(
+            status="COMPLETED", created_at__date__gte=period_start
         )
         total_paid = paid_sales.aggregate(Sum('paid_amount'))['paid_amount__sum'] or Decimal('0')
         total_approved = paid_sales.count()
@@ -165,8 +167,7 @@ class AccountantDashboardPaymentsView(AccountantDashboardBaseView):
 
     def _get_selected_for_invoice(self, tenant_id):
         """Get partial invoices currently awaiting accountant action."""
-        sales = Sale.objects.filter(
-            tenant_id=tenant_id,
+        sales = self._wholesale_sales_queryset(tenant_id).filter(
             status="APPROVED",
             payment_option="PARTIAL",
             due_amount__gt=0,
@@ -196,8 +197,7 @@ class AccountantDashboardPaymentsView(AccountantDashboardBaseView):
     def _get_partial_payment_requests(self, tenant_id):
         """Get partial payment requests"""
         # Get accountant-stage partial payment sales (after owner + pharmacist approvals)
-        partial_sales = Sale.objects.filter(
-            tenant_id=tenant_id,
+        partial_sales = self._wholesale_sales_queryset(tenant_id).filter(
             status="APPROVED",
             payment_option="PARTIAL",
             due_amount__gt=0,
@@ -231,18 +231,13 @@ class AccountantDashboardPaymentsView(AccountantDashboardBaseView):
         today = date.today()
 
         # Today's sales
-        todays_sales = Sale.objects.filter(
-            tenant_id=tenant_id, created_at__date=today
-        ).count()
+        todays_sales = self._wholesale_sales_queryset(tenant_id).filter(created_at__date=today).count()
 
         # Pending invoices
-        pending_invoices = Sale.objects.filter(
-            tenant_id=tenant_id, status="PENDING"
-        ).count()
+        pending_invoices = self._wholesale_sales_queryset(tenant_id).filter(status="PENDING").count()
 
         # Pending partial payments
-        pending_partial = Sale.objects.filter(
-            tenant_id=tenant_id,
+        pending_partial = self._wholesale_sales_queryset(tenant_id).filter(
             payment_option="PARTIAL",
             due_amount__gt=0,
             status="APPROVED",
@@ -252,18 +247,18 @@ class AccountantDashboardPaymentsView(AccountantDashboardBaseView):
 
         # Overdue payments
         thirty_days_ago = datetime.now() - timedelta(days=30)
-        overdue_payments = Sale.objects.filter(
-            tenant_id=tenant_id, status="APPROVED", due_amount__gt=0, approved_at__lt=thirty_days_ago
+        overdue_payments = self._wholesale_sales_queryset(tenant_id).filter(
+            status="APPROVED", due_amount__gt=0, approved_at__lt=thirty_days_ago
         ).count()
 
         # Total due
-        total_due = Sale.objects.filter(
-            tenant_id=tenant_id, status__in=["PENDING", "APPROVED"], due_amount__gt=0
+        total_due = self._wholesale_sales_queryset(tenant_id).filter(
+            status__in=["PENDING", "APPROVED"], due_amount__gt=0
         ).aggregate(Sum('due_amount'))['due_amount__sum'] or Decimal('0')
 
         # Total paid
-        total_paid = Sale.objects.filter(
-            tenant_id=tenant_id, status="COMPLETED"
+        total_paid = self._wholesale_sales_queryset(tenant_id).filter(
+            status="COMPLETED"
         ).aggregate(Sum('paid_amount'))['paid_amount__sum'] or Decimal('0')
 
         return {

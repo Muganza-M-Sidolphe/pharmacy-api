@@ -118,7 +118,7 @@ class OwnerInvoicesBaseView(APIView):
 
     def _owner_visible_invoices(self, tenant_id):
         # Owner can action partial-payment invoices; fully-paid invoices are visible only if COMPLETED.
-        return Sale.objects.filter(tenant_id=tenant_id).filter(
+        return Sale.objects.filter(tenant_id=tenant_id).exclude(cashier__department="RETAIL").filter(
             Q(payment_option="PARTIAL", due_amount__gt=0)
             | Q(due_amount=0, status="COMPLETED")
         )

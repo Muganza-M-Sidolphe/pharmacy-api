@@ -28,6 +28,12 @@ class AccountantReportsBaseView(APIView):
             return None, tenant_id, Response({"detail": error_message}, status=error_status)
         return tenant, tenant_id, None
 
+    def _wholesale_sales_queryset(self, tenant_id):
+        return Sale.objects.filter(
+            tenant_id=tenant_id,
+            status__in=['APPROVED', 'COMPLETED']
+        ).exclude(cashier__department='RETAIL')
+
 
 class AccountantFinancialReportView(AccountantReportsBaseView):
     """Generate financial report with summary and breakdown."""
@@ -45,7 +51,7 @@ class AccountantFinancialReportView(AccountantReportsBaseView):
         start_date = request.query_params.get('startDate')
         end_date = request.query_params.get('endDate')
 
-        sales_qs = Sale.objects.filter(tenant_id=tenant_id, status__in=['APPROVED', 'COMPLETED'])
+        sales_qs = self._wholesale_sales_queryset(tenant_id)
         expenses_qs = Expense.objects.filter(tenant_id=tenant_id)
 
         if start_date:
@@ -153,7 +159,7 @@ class AccountantSalesReportView(AccountantReportsBaseView):
         start_date = request.query_params.get('startDate')
         end_date = request.query_params.get('endDate')
 
-        qs = Sale.objects.filter(tenant_id=tenant_id, status__in=['APPROVED', 'COMPLETED']).order_by('-created_at')
+        qs = self._wholesale_sales_queryset(tenant_id).order_by('-created_at')
 
         if start_date:
             try:
@@ -220,7 +226,7 @@ class AccountantExportReportView(AccountantReportsBaseView):
         writer = csv.writer(response)
 
         if report_type == 'financial':
-            sales_qs = Sale.objects.filter(tenant_id=tenant_id, status__in=['APPROVED', 'COMPLETED'])
+            sales_qs = self._wholesale_sales_queryset(tenant_id)
             expenses_qs = Expense.objects.filter(tenant_id=tenant_id)
 
             if start_date:
@@ -249,7 +255,7 @@ class AccountantExportReportView(AccountantReportsBaseView):
             writer.writerow(['Net Profit', str(net_profit), f"{profit_margin:.2f}%"])
 
         elif report_type == 'sales':
-            qs = Sale.objects.filter(tenant_id=tenant_id, status__in=['APPROVED', 'COMPLETED']).order_by('-created_at')
+            qs = self._wholesale_sales_queryset(tenant_id).order_by('-created_at')
             if start_date:
                 try:
                     s = datetime.strptime(start_date, '%Y-%m-%d').date()
