@@ -1,4 +1,10 @@
 from rest_framework import serializers
+from datetime import timedelta
+from decimal import Decimal
+
+from django.db.models import Sum
+from django.utils import timezone
+
 from .models import User, Tenant
 from django.contrib.auth import get_user_model
 
@@ -128,12 +134,51 @@ from .models import Medicine, StockBatch
 
 
 class StockBatchSerializer(serializers.ModelSerializer):
+    medicineName = serializers.CharField(source='medicine.brand_name', read_only=True)
     expiryDate = serializers.DateField(source='expiry_date')
     manufactureDate = serializers.DateField(source='manufacture_date', allow_null=True)
+    status = serializers.SerializerMethodField()
+    unitsSold = serializers.SerializerMethodField()
+    revenue = serializers.SerializerMethodField()
+
+    def get_status(self, obj):
+        if not obj.expiry_date:
+            return "NO_EXPIRY"
+
+        today = timezone.now().date()
+        if obj.expiry_date < today:
+            return "EXPIRED"
+        if obj.expiry_date <= today + timedelta(days=7):
+            return "CRITICAL"
+        return "EXPIRING_SOON"
+
+    def get_unitsSold(self, obj):
+        total = obj.saleitem_set.aggregate(total=Sum("quantity")).get("total")
+        return int(total or 0)
+
+    def get_revenue(self, obj):
+        total = obj.saleitem_set.aggregate(total=Sum("subtotal")).get("total")
+        return str(total or Decimal("0.00"))
 
     class Meta:
         model = StockBatch
-        fields = ['id', 'batch_number', 'quantity', 'purchase_price', 'selling_price', 'manufactureDate', 'expiryDate', 'supplier_name', 'supplier_phone', 'supplier_address', 'created_at']
+        fields = [
+            'id',
+            'medicineName',
+            'batch_number',
+            'quantity',
+            'purchase_price',
+            'selling_price',
+            'manufactureDate',
+            'expiryDate',
+            'status',
+            'unitsSold',
+            'revenue',
+            'supplier_name',
+            'supplier_phone',
+            'supplier_address',
+            'created_at',
+        ]
 
 
 class MedicineSerializer(serializers.ModelSerializer):
