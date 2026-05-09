@@ -1,5 +1,8 @@
+import logging
 from decimal import Decimal
 
+from django.conf import settings
+from django.core.mail import send_mail
 from django.db.models import Q
 from django.db import transaction
 from django.utils import timezone
@@ -14,6 +17,9 @@ from ...serializers import (
     RetailWholesaleRequestSerializer,
 )
 from ...utils.subscription_access import check_subscription_access
+
+
+logger = logging.getLogger(__name__)
 
 
 def _tenant_membership(user, tenant_id):
@@ -53,6 +59,27 @@ def _notify_users(tenant_id, recipients, title, message):
         Notification.objects.bulk_create(notifications)
 
 
+def _send_workflow_emails(recipients, subject, message):
+    from_email = (
+        getattr(settings, "DEFAULT_FROM_EMAIL", None)
+        or getattr(settings, "EMAIL_HOST_USER", "")
+        or "no-reply@pharmacy.local"
+    )
+    seen_emails = set()
+    for recipient in recipients:
+        email = (getattr(recipient, "email", None) or "").strip().lower()
+        if not email or email in seen_emails:
+            continue
+        seen_emails.add(email)
+        try:
+            send_mail(subject, message, from_email, [email], fail_silently=False)
+        except Exception:  # pragma: no cover - depends on email backend configuration
+            logger.exception(
+                "Failed to send collaborative retail workflow email to %s",
+                email,
+            )
+
+
 def _users_for_role_and_department(tenant_id, role=None, department=None):
     qs = UserTenant.objects.filter(tenant_id=tenant_id).select_related("user")
     if role:
@@ -68,13 +95,28 @@ def _notify_request_created(rw_request):
         role="OWNER",
         department="WHOLESALE",
     )
+    title = "Collaborative Retail Request Created"
+    message = (
+        f"{rw_request.requested_by.name if rw_request.requested_by_id else 'Retail user'} "
+        f"created request {rw_request.id}. Owner approval is required."
+    )
     _notify_users(
         rw_request.wholesale_tenant_id,
         owner_users,
-        "Collaborative Retail Request Created",
+        title,
+        message,
+    )
+    _send_workflow_emails(
+        owner_users,
+        title,
         (
-            f"{rw_request.requested_by.name if rw_request.requested_by_id else 'Retail user'} "
-            f"created request {rw_request.id}. Owner approval is required."
+            f"Hello,\n\n"
+            f"A collaborative retail request has been created in {rw_request.wholesale_tenant.name}.\n\n"
+            f"Request ID: {rw_request.id}\n"
+            f"Requested by: {rw_request.requested_by.name if rw_request.requested_by_id else 'Retail user'}\n"
+            f"Payment option: {rw_request.payment_option}\n"
+            f"Current status: {rw_request.status}\n\n"
+            "Owner approval is required next."
         ),
     )
 
@@ -143,11 +185,30 @@ def _notify_request_transition(rw_request, action):
     payload = notification_map.get(action)
     if not payload:
         return
+
     _notify_users(
         wholesale_tenant_id,
         payload["recipients"],
         payload["title"],
         payload["message"],
+    )
+    note_line = f"\nDecision note: {rw_request.decision_note}" if rw_request.decision_note else ""
+    _send_workflow_emails(
+        payload["recipients"],
+        payload["title"],
+        (
+            f"Hello,\n\n"
+            f"{payload['message']}\n\n"
+            f"Tenant: {rw_request.wholesale_tenant.name}\n"
+            f"Request ID: {rw_request.id}\n"
+            f"Short code: {request_label}\n"
+            f"Current status: {rw_request.status}\n"
+            f"Payment option: {rw_request.payment_option}\n"
+            f"Payment method: {rw_request.payment_method or 'Not set'}\n"
+            f"Paid amount: {rw_request.paid_amount}\n"
+            f"Requested by: {retail_user.name if retail_user else 'Retail user'}"
+            f"{note_line}"
+        ),
     )
 
 
