@@ -29,6 +29,9 @@ class AccountantInvoicesBaseView(APIView):
             return None, tenant_id, Response({"detail": error_message}, status=error_status)
         return tenant, tenant_id, None
 
+    def _wholesale_sales_queryset(self, tenant_id):
+        return Sale.objects.filter(tenant_id=tenant_id).exclude(cashier__department='RETAIL')
+
 
 class AccountantInvoicesListView(AccountantInvoicesBaseView):
     """List all approved invoices for accountant to manage payments."""
@@ -61,8 +64,7 @@ class AccountantInvoicesListView(AccountantInvoicesBaseView):
         
         # Start with invoices that have been approved by storekeeper.
         # For PARTIAL chain, accountant sees invoices only after owner + pharmacist approvals.
-        qs = Sale.objects.filter(
-            tenant_id=tenant_id,
+        qs = self._wholesale_sales_queryset(tenant_id).filter(
             status__in=['APPROVED', 'COMPLETED']
         ).filter(
             Q(payment_option__in=['FULL', 'CREDIT']) |
@@ -142,7 +144,7 @@ class AccountantInvoiceDetailView(AccountantInvoicesBaseView):
             return auth_error
 
         try:
-            sale = Sale.objects.get(id=sale_id, tenant_id=tenant_id, status__in=['APPROVED', 'COMPLETED'])
+            sale = self._wholesale_sales_queryset(tenant_id).get(id=sale_id, status__in=['APPROVED', 'COMPLETED'])
             return Response(SaleSerializer(sale).data)
         except Sale.DoesNotExist:
             return Response({"detail": "Invoice not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -166,7 +168,7 @@ class AccountantApproveInvoiceView(AccountantInvoicesBaseView):
             return auth_error
 
         try:
-            sale = Sale.objects.get(id=sale_id, tenant_id=tenant_id, status='APPROVED')
+            sale = self._wholesale_sales_queryset(tenant_id).get(id=sale_id, status='APPROVED')
             if sale.payment_option == 'PARTIAL' and sale.due_amount > 0:
                 if sale.owner_approval_status != 'APPROVED':
                     return Response(
@@ -240,7 +242,7 @@ class AccountantRecordPartialPaymentView(AccountantInvoicesBaseView):
             return auth_error
 
         try:
-            sale = Sale.objects.get(id=sale_id, tenant_id=tenant_id, status__in=['APPROVED', 'COMPLETED'])
+            sale = self._wholesale_sales_queryset(tenant_id).get(id=sale_id, status__in=['APPROVED', 'COMPLETED'])
             
             paid_amount = request.data.get('paidAmount')
             payment_method = request.data.get('paymentMethod')
@@ -326,7 +328,7 @@ class AccountantMarkFullyPaidView(AccountantInvoicesBaseView):
             return auth_error
 
         try:
-            sale = Sale.objects.get(id=sale_id, tenant_id=tenant_id, status__in=['APPROVED', 'COMPLETED'])
+            sale = self._wholesale_sales_queryset(tenant_id).get(id=sale_id, status__in=['APPROVED', 'COMPLETED'])
             
             payment_method = request.data.get('paymentMethod')
             if not payment_method:

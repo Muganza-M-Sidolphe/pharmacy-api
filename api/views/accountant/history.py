@@ -28,6 +28,12 @@ class AccountantHistoryBaseView(APIView):
             return None, tenant_id, Response({"detail": error_message}, status=error_status)
         return tenant, tenant_id, None
 
+    def _wholesale_sales_queryset(self, tenant_id):
+        return Sale.objects.filter(
+            tenant_id=tenant_id,
+            status__in=['APPROVED', 'COMPLETED']
+        ).exclude(cashier__department='RETAIL')
+
 
 class AccountantDashboardSummaryView(AccountantHistoryBaseView):
     """Get accountant dashboard summary with totals and counts."""
@@ -42,7 +48,7 @@ class AccountantDashboardSummaryView(AccountantHistoryBaseView):
         if auth_error:
             return auth_error
 
-        sales_qs = Sale.objects.filter(tenant_id=tenant_id, status__in=['APPROVED', 'COMPLETED'])
+        sales_qs = self._wholesale_sales_queryset(tenant_id)
         expenses_qs = Expense.objects.filter(tenant_id=tenant_id)
         notifications_qs = Notification.objects.filter(tenant_id=tenant_id)
 
@@ -111,10 +117,7 @@ class AccountantApprovedSalesListView(AccountantHistoryBaseView):
         page_size = int(request.query_params.get('page_size', 10))
         payment_filter = request.query_params.get('paymentFilter', 'all')  # all, partial, paid
 
-        qs = Sale.objects.filter(
-            tenant_id=tenant_id,
-            status__in=['APPROVED', 'COMPLETED']
-        ).filter(
+        qs = self._wholesale_sales_queryset(tenant_id).filter(
             Q(payment_option__in=['FULL', 'CREDIT']) |
             Q(
                 payment_option='PARTIAL',

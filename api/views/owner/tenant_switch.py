@@ -69,6 +69,7 @@ class OwnerTenantsListView(APIView):
         )
         total_sales = (
             Sale.objects.filter(tenant_id=tenant_id, status__in=["APPROVED", "COMPLETED"])
+            .exclude(cashier__department="RETAIL")
             .aggregate(total=Coalesce(Sum("total_amount"), Decimal("0.00")))
             .get("total")
             or Decimal("0.00")

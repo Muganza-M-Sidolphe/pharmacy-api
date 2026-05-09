@@ -36,6 +36,9 @@ class AccountantAnalyticsBaseView(APIView):
             return None, tenant_id, Response({"error": error_message}, status=error_status)
         return tenant, tenant_id, None
 
+    def _wholesale_sales_queryset(self, tenant_id):
+        return Sale.objects.filter(tenant_id=tenant_id).exclude(cashier__department='RETAIL')
+
 
 class AccountantAnalyticsDashboardView(AccountantAnalyticsBaseView):
     """Get complete analytics dashboard with KPIs, trends, forecasts, and insights"""
@@ -58,13 +61,13 @@ class AccountantAnalyticsDashboardView(AccountantAnalyticsBaseView):
         previous_start = start_date - timedelta(days=days)
 
         # Get current period sales
-        current_sales = Sale.objects.filter(
-            tenant_id=tenant_id, status="COMPLETED", created_at__date__gte=start_date, created_at__date__lte=end_date
+        current_sales = self._wholesale_sales_queryset(tenant_id).filter(
+            status="COMPLETED", created_at__date__gte=start_date, created_at__date__lte=end_date
         )
 
         # Get previous period sales
-        previous_sales = Sale.objects.filter(
-            tenant_id=tenant_id, status="COMPLETED", created_at__date__gte=previous_start, created_at__date__lt=start_date
+        previous_sales = self._wholesale_sales_queryset(tenant_id).filter(
+            status="COMPLETED", created_at__date__gte=previous_start, created_at__date__lt=start_date
         )
 
         # Calculate KPIs
@@ -77,7 +80,7 @@ class AccountantAnalyticsDashboardView(AccountantAnalyticsBaseView):
 
         # Calculate inventory turnover
         medicines = Medicine.objects.filter(tenant_id=tenant_id)
-        sold_items_count = SaleItem.objects.filter(sale__tenant_id=tenant_id).count() if hasattr(SaleItem, 'objects') else 0
+        sold_items_count = SaleItem.objects.filter(sale__tenant_id=tenant_id).exclude(sale__cashier__department='RETAIL').count() if hasattr(SaleItem, 'objects') else 0
         inventory_turnover = Decimal(sold_items_count) / max(medicines.count(), 1) if medicines.count() > 0 else Decimal('0')
 
         kpis = {
@@ -118,8 +121,8 @@ class AccountantAnalyticsDashboardView(AccountantAnalyticsBaseView):
     def _get_daily_revenue_trend(self, tenant_id, start_date, end_date, currency):
         """Calculate daily revenue trend"""
         daily_data = (
-            Sale.objects.filter(
-                tenant_id=tenant_id, status="COMPLETED", created_at__date__gte=start_date, created_at__date__lte=end_date
+            self._wholesale_sales_queryset(tenant_id).filter(
+                status="COMPLETED", created_at__date__gte=start_date, created_at__date__lte=end_date
             )
             .annotate(date=TruncDate('created_at'))
             .values('date')
@@ -150,8 +153,8 @@ class AccountantAnalyticsDashboardView(AccountantAnalyticsBaseView):
     def _get_hourly_sales_pattern(self, tenant_id, start_date, end_date):
         """Calculate hourly sales pattern"""
         hourly_data = (
-            Sale.objects.filter(
-                tenant_id=tenant_id, status="COMPLETED", created_at__date__gte=start_date, created_at__date__lte=end_date
+            self._wholesale_sales_queryset(tenant_id).filter(
+                status="COMPLETED", created_at__date__gte=start_date, created_at__date__lte=end_date
             )
             .annotate(hour=TruncHour('created_at'))
             .values('hour')
@@ -182,8 +185,8 @@ class AccountantAnalyticsDashboardView(AccountantAnalyticsBaseView):
     def _get_revenue_vs_transactions(self, tenant_id, start_date, end_date, currency):
         """Calculate revenue vs transactions"""
         daily_data = (
-            Sale.objects.filter(
-                tenant_id=tenant_id, status="COMPLETED", created_at__date__gte=start_date, created_at__date__lte=end_date
+            self._wholesale_sales_queryset(tenant_id).filter(
+                status="COMPLETED", created_at__date__gte=start_date, created_at__date__lte=end_date
             )
             .annotate(date=TruncDate('created_at'))
             .values('date')

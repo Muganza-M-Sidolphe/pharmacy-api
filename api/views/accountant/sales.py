@@ -30,6 +30,12 @@ class AccountantSalesBaseView(APIView):
 			return None, tenant_id, Response({"detail": error_message}, status=error_status)
 		return tenant, tenant_id, None
 
+	def _wholesale_sales_queryset(self, tenant_id):
+		return Sale.objects.filter(
+			tenant_id=tenant_id,
+			status__in=['APPROVED', 'COMPLETED']
+		).exclude(cashier__department='RETAIL')
+
 
 class AccountantSalesSummaryView(AccountantSalesBaseView):
 	"""Summary metrics for accountant sales dashboard."""
@@ -44,7 +50,7 @@ class AccountantSalesSummaryView(AccountantSalesBaseView):
 		if auth_error:
 			return auth_error
 
-		qs = Sale.objects.filter(tenant_id=tenant_id, status__in=['APPROVED', 'COMPLETED'])
+		qs = self._wholesale_sales_queryset(tenant_id)
 
 		total_sales = qs.count()
 		total_revenue = sum((s.total_amount for s in qs), Decimal('0.00'))
@@ -103,11 +109,7 @@ class AccountantDailySalesTrendView(AccountantSalesBaseView):
 
 		for i in range(delta + 1):
 			day = start + timedelta(days=i)
-			day_total = Sale.objects.filter(
-				tenant_id=tenant_id,
-				status__in=['APPROVED', 'COMPLETED'],
-				created_at__date=day
-			)
+			day_total = self._wholesale_sales_queryset(tenant_id).filter(created_at__date=day)
 			total_amount = sum((s.total_amount for s in day_total), Decimal('0.00'))
 			labels.append(day.strftime('%a'))
 			data.append(float(total_amount))
@@ -131,7 +133,7 @@ class AccountantPaymentMethodsDistributionView(AccountantSalesBaseView):
 		start_date = request.query_params.get('startDate')
 		end_date = request.query_params.get('endDate')
 
-		qs = Sale.objects.filter(tenant_id=tenant_id, status__in=['APPROVED', 'COMPLETED'])
+		qs = self._wholesale_sales_queryset(tenant_id)
 
 		if start_date:
 			try:
@@ -184,7 +186,7 @@ class AccountantExportSalesView(AccountantSalesBaseView):
 		start_date = request.query_params.get('startDate')
 		end_date = request.query_params.get('endDate')
 
-		qs = Sale.objects.filter(tenant_id=tenant_id, status__in=['APPROVED', 'COMPLETED']).order_by('created_at')
+		qs = self._wholesale_sales_queryset(tenant_id).order_by('created_at')
 
 		if start_date:
 			try:

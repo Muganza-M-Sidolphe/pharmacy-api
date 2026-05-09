@@ -66,6 +66,12 @@ class OwnerReportBaseView(APIView):
 
         return start_date, end_date, None
 
+    def _owner_sales_queryset(self, tenant_id):
+        return Sale.objects.filter(
+            tenant_id=tenant_id,
+            status__in=["APPROVED", "COMPLETED"],
+        ).exclude(cashier__department="RETAIL")
+
 
 class OwnerSalesReportsDashboardView(OwnerReportBaseView):
     """Owner sales reports dashboard matching reports screen cards/charts."""
@@ -83,9 +89,7 @@ class OwnerSalesReportsDashboardView(OwnerReportBaseView):
         if date_error:
             return date_error
 
-        sales_qs = Sale.objects.filter(
-            tenant_id=tenant_id,
-            status__in=["APPROVED", "COMPLETED"],
+        sales_qs = self._owner_sales_queryset(tenant_id).filter(
             created_at__date__gte=start_date,
             created_at__date__lte=end_date,
         )
@@ -153,9 +157,7 @@ class OwnerSalesReportsDashboardView(OwnerReportBaseView):
         today = datetime.now().date()
         month_start = today.replace(day=1)
         monthly_revenue = (
-            Sale.objects.filter(
-                tenant_id=tenant_id,
-                status__in=["APPROVED", "COMPLETED"],
+            self._owner_sales_queryset(tenant_id).filter(
                 created_at__date__gte=month_start,
                 created_at__date__lte=today,
             ).aggregate(total=Coalesce(Sum("total_amount"), Decimal("0.00")))["total"]
@@ -165,9 +167,7 @@ class OwnerSalesReportsDashboardView(OwnerReportBaseView):
         previous_start = start_date - timedelta(days=days_count)
         previous_end = start_date - timedelta(days=1)
         previous_revenue = (
-            Sale.objects.filter(
-                tenant_id=tenant_id,
-                status__in=["APPROVED", "COMPLETED"],
+            self._owner_sales_queryset(tenant_id).filter(
                 created_at__date__gte=previous_start,
                 created_at__date__lte=previous_end,
             ).aggregate(total=Coalesce(Sum("total_amount"), Decimal("0.00")))["total"]

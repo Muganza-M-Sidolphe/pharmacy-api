@@ -67,6 +67,15 @@ class OwnerSalesBaseView(APIView):
 
         return start, end, None
 
+    def _owner_sales_queryset(self, tenant_id):
+        # Collaborative retail uses the same tenant context for its own portal sales.
+        # Owner sales screens should exclude those retail-user sales while still
+        # keeping wholesale request-generated sales (which have no cashier).
+        return Sale.objects.filter(
+            tenant_id=tenant_id,
+            status__in=["APPROVED", "COMPLETED"],
+        ).exclude(cashier__department="RETAIL")
+
 
 class OwnerSalesSummaryView(OwnerSalesBaseView):
     """Summary metrics for owner sales dashboard."""
@@ -81,7 +90,7 @@ class OwnerSalesSummaryView(OwnerSalesBaseView):
         if error:
             return error
 
-        qs = Sale.objects.filter(tenant_id=tenant_id, status__in=["APPROVED", "COMPLETED"])
+        qs = self._owner_sales_queryset(tenant_id)
 
         total_sales = qs.count()
         total_revenue = sum((sale.total_amount for sale in qs), Decimal("0.00"))
@@ -122,9 +131,7 @@ class OwnerSalesDashboardView(OwnerSalesBaseView):
         if date_error:
             return date_error
 
-        qs = Sale.objects.filter(
-            tenant_id=tenant_id,
-            status__in=["APPROVED", "COMPLETED"],
+        qs = self._owner_sales_queryset(tenant_id).filter(
             created_at__date__gte=start,
             created_at__date__lte=end,
         ).select_related("cashier").prefetch_related(
