@@ -592,11 +592,11 @@ class RetailWholesaleRequestListCreateView(APIView):
 
         estimated_total = _estimate_payload_total(data["items"], medicine_map)
         requested_paid_amount = data.get("paidAmount")
-        initial_paid_amount = Decimal("0.00")
+        declared_paid_amount = Decimal("0.00")
 
         if data["paymentOption"] == "FULL":
-            initial_paid_amount = estimated_total if requested_paid_amount in (None, "") else Decimal(str(requested_paid_amount))
-            if initial_paid_amount != estimated_total:
+            declared_paid_amount = estimated_total if requested_paid_amount in (None, "") else Decimal(str(requested_paid_amount))
+            if declared_paid_amount != estimated_total:
                 return Response(
                     {"detail": "FULL payment requests must record the full total amount at creation"},
                     status=status.HTTP_400_BAD_REQUEST,
@@ -607,8 +607,8 @@ class RetailWholesaleRequestListCreateView(APIView):
                     {"detail": "paidAmount is required for PARTIAL requests at creation"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            initial_paid_amount = Decimal(str(requested_paid_amount))
-            if initial_paid_amount <= 0 or initial_paid_amount > estimated_total:
+            declared_paid_amount = Decimal(str(requested_paid_amount))
+            if declared_paid_amount <= 0 or declared_paid_amount > estimated_total:
                 return Response(
                     {"detail": "paidAmount must be greater than 0 and not exceed total amount"},
                     status=status.HTTP_400_BAD_REQUEST,
@@ -626,7 +626,8 @@ class RetailWholesaleRequestListCreateView(APIView):
             requested_by=request.user,
             payment_option=data["paymentOption"],
             payment_method=data["paymentMethod"],
-            paid_amount=initial_paid_amount,
+            declared_paid_amount=declared_paid_amount,
+            paid_amount=Decimal("0.00"),
             due_date=data.get("dueDate"),
             note=data.get("note"),
         )
@@ -727,7 +728,7 @@ class RetailWholesaleRequestDecisionView(APIView):
             estimated_total = _estimate_request_total(rw_request)
             payment_amount_raw = request.data.get("paidAmount")
             if rw_request.payment_option == "FULL":
-                paid_amount = estimated_total
+                paid_amount = rw_request.declared_paid_amount or estimated_total
                 if payment_amount_raw not in (None, ""):
                     try:
                         paid_amount = Decimal(str(payment_amount_raw))
@@ -740,14 +741,17 @@ class RetailWholesaleRequestDecisionView(APIView):
                         )
             elif rw_request.payment_option == "PARTIAL":
                 if payment_amount_raw in (None, ""):
-                    return Response(
-                        {"detail": "paidAmount is required for PARTIAL payment requests"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                try:
-                    paid_amount = Decimal(str(payment_amount_raw))
-                except Exception:
-                    return Response({"detail": "paidAmount must be a valid number"}, status=status.HTTP_400_BAD_REQUEST)
+                    paid_amount = rw_request.declared_paid_amount
+                    if paid_amount <= 0:
+                        return Response(
+                            {"detail": "paidAmount is required for PARTIAL payment requests"},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                else:
+                    try:
+                        paid_amount = Decimal(str(payment_amount_raw))
+                    except Exception:
+                        return Response({"detail": "paidAmount must be a valid number"}, status=status.HTTP_400_BAD_REQUEST)
                 if paid_amount <= 0 or paid_amount > estimated_total:
                     return Response(
                         {"detail": "paidAmount must be greater than 0 and not exceed total amount"},
@@ -772,7 +776,7 @@ class RetailWholesaleRequestDecisionView(APIView):
         rw_request.save(update_fields=["status", "decision_note", "decided_by", "decided_at", "updated_at"])
 
         if rw_request.status == "PHARMACIST_APPROVED":
-            if rw_request.payment_option == "CREDIT" or rw_request.paid_amount > 0:
+            if rw_request.payment_option == "CREDIT":
                 rw_request.status = "PAID_PENDING_CONFIRMATION"
             else:
                 rw_request.status = "AWAITING_PAYMENT"
