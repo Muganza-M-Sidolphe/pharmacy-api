@@ -225,6 +225,16 @@ def _estimate_request_total(rw_request):
     return total
 
 
+def _estimate_payload_total(items, medicine_map):
+    total = Decimal("0.00")
+    for item in items:
+        medicine = medicine_map[str(item["medicineId"])]
+        batch = _wholesale_inventory_batches(medicine).first()
+        unit_price = batch.selling_price if batch else Decimal("0.00")
+        total += unit_price * item["quantity"]
+    return total
+
+
 def _wholesale_inventory_batches(medicine):
     return (
         medicine.batches.filter(quantity__gt=0)
@@ -580,12 +590,43 @@ class RetailWholesaleRequestListCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        estimated_total = _estimate_payload_total(data["items"], medicine_map)
+        requested_paid_amount = data.get("paidAmount")
+        initial_paid_amount = Decimal("0.00")
+
+        if data["paymentOption"] == "FULL":
+            initial_paid_amount = estimated_total if requested_paid_amount in (None, "") else Decimal(str(requested_paid_amount))
+            if initial_paid_amount != estimated_total:
+                return Response(
+                    {"detail": "FULL payment requests must record the full total amount at creation"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        elif data["paymentOption"] == "PARTIAL":
+            if requested_paid_amount in (None, ""):
+                return Response(
+                    {"detail": "paidAmount is required for PARTIAL requests at creation"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            initial_paid_amount = Decimal(str(requested_paid_amount))
+            if initial_paid_amount <= 0 or initial_paid_amount > estimated_total:
+                return Response(
+                    {"detail": "paidAmount must be greater than 0 and not exceed total amount"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        elif data["paymentOption"] == "CREDIT":
+            if requested_paid_amount not in (None, "", Decimal("0.00"), 0):
+                return Response(
+                    {"detail": "CREDIT requests cannot record an upfront paidAmount"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         rw_request = RetailWholesaleRequest.objects.create(
             retail_tenant_id=data["tenantId"],
             wholesale_tenant_id=data["tenantId"],
             requested_by=request.user,
             payment_option=data["paymentOption"],
             payment_method=data["paymentMethod"],
+            paid_amount=initial_paid_amount,
             due_date=data.get("dueDate"),
             note=data.get("note"),
         )
@@ -731,7 +772,7 @@ class RetailWholesaleRequestDecisionView(APIView):
         rw_request.save(update_fields=["status", "decision_note", "decided_by", "decided_at", "updated_at"])
 
         if rw_request.status == "PHARMACIST_APPROVED":
-            if rw_request.payment_option == "CREDIT":
+            if rw_request.payment_option == "CREDIT" or rw_request.paid_amount > 0:
                 rw_request.status = "PAID_PENDING_CONFIRMATION"
             else:
                 rw_request.status = "AWAITING_PAYMENT"

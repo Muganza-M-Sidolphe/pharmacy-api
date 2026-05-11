@@ -1078,6 +1078,7 @@ class CreateRetailWholesaleRequestSerializer(serializers.Serializer):
         choices=["CASH", "CARD", "UPI", "MOBILE_MONEY", "BANK_TRANSFER"],
         default="BANK_TRANSFER",
     )
+    paidAmount = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
     dueDate = serializers.DateField(required=False, allow_null=True)
     note = serializers.CharField(required=False, allow_blank=True)
     items = RetailWholesaleRequestItemInputSerializer(many=True)
