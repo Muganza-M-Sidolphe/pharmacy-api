@@ -294,6 +294,7 @@ def _create_wholesale_sale_and_reduce_inventory(rw_request):
         due_amount=Decimal("0.00"),
         total_amount=Decimal("0.00"),
         subtotal=Decimal("0.00"),
+        due_date=rw_request.due_date,
         approved_at=timezone.now(),
         approved_by=(
             rw_request.decided_by
@@ -348,6 +349,17 @@ def _create_wholesale_sale_and_reduce_inventory(rw_request):
         ]
     )
     return sale
+
+
+def _sync_request_status_from_sale(sale):
+    source_request = sale.retail_wholesale_source_requests.first()
+    if not source_request:
+        return
+
+    target_status = "COMPLETED" if sale.due_amount <= 0 else "DELIVERED"
+    if source_request.status != target_status:
+        source_request.status = target_status
+        source_request.save(update_fields=["status", "updated_at"])
 
 
 def _sync_completed_request_to_retail_inventory(rw_request):
@@ -574,6 +586,7 @@ class RetailWholesaleRequestListCreateView(APIView):
             requested_by=request.user,
             payment_option=data["paymentOption"],
             payment_method=data["paymentMethod"],
+            due_date=data.get("dueDate"),
             note=data.get("note"),
         )
 
@@ -724,12 +737,13 @@ class RetailWholesaleRequestDecisionView(APIView):
                 rw_request.status = "AWAITING_PAYMENT"
             rw_request.save(update_fields=["status", "updated_at"])
         elif rw_request.status == "DELIVERED":
-            rw_request.status = "COMPLETED"
-            rw_request.save(update_fields=["status", "updated_at"])
             try:
                 _finalize_completed_request(rw_request)
             except ValueError as exc:
                 return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            if rw_request.wholesale_sale_id and rw_request.wholesale_sale.due_amount <= 0:
+                rw_request.status = "COMPLETED"
+                rw_request.save(update_fields=["status", "updated_at"])
 
         notification_action = action
         if action == "PHARMACIST_APPROVE" and rw_request.payment_option == "CREDIT":

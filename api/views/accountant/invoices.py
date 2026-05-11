@@ -32,6 +32,15 @@ class AccountantInvoicesBaseView(APIView):
     def _wholesale_sales_queryset(self, tenant_id):
         return Sale.objects.filter(tenant_id=tenant_id).exclude(cashier__department='RETAIL')
 
+    def _sync_collaborative_request_status(self, sale):
+        source_request = sale.retail_wholesale_source_requests.first()
+        if not source_request:
+            return
+        target_status = 'COMPLETED' if sale.due_amount <= 0 else 'DELIVERED'
+        if source_request.status != target_status:
+            source_request.status = target_status
+            source_request.save(update_fields=['status', 'updated_at'])
+
 
 class AccountantInvoicesListView(AccountantInvoicesBaseView):
     """List all approved invoices for accountant to manage payments."""
@@ -292,6 +301,7 @@ class AccountantRecordPartialPaymentView(AccountantInvoicesBaseView):
                 sale.status = 'APPROVED'
 
             sale.save()
+            self._sync_collaborative_request_status(sale)
 
             # Notify cashier
             Notification.objects.create(
@@ -345,6 +355,7 @@ class AccountantMarkFullyPaidView(AccountantInvoicesBaseView):
             sale.payment_method = payment_method
             sale.status = 'COMPLETED'
             sale.save()
+            self._sync_collaborative_request_status(sale)
 
             # Notify cashier
             Notification.objects.create(

@@ -165,6 +165,7 @@ class RetailWholesaleRequest(models.Model):
     payment_option = models.CharField(max_length=20, choices=PAYMENT_OPTION_CHOICES, default="FULL")
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES, default="BANK_TRANSFER")
     paid_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    due_date = models.DateField(null=True, blank=True)
     note = models.TextField(blank=True, null=True)
     decided_by = models.ForeignKey(
         User,
