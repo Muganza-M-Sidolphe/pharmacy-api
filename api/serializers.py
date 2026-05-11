@@ -1156,6 +1156,7 @@ class RetailWholesaleRequestSerializer(serializers.ModelSerializer):
     paymentOption = serializers.CharField(source="payment_option", read_only=True)
     paymentMethod = serializers.CharField(source="payment_method", read_only=True)
     dueDate = serializers.DateField(source="due_date", read_only=True, allow_null=True)
+    declaredPaidAmount = serializers.DecimalField(source="declared_paid_amount", max_digits=12, decimal_places=2, read_only=True)
     totalAmount = serializers.SerializerMethodField()
     paidAmount = serializers.SerializerMethodField()
     remainingAmount = serializers.SerializerMethodField()
@@ -1212,6 +1213,7 @@ class RetailWholesaleRequestSerializer(serializers.ModelSerializer):
             "paymentOption",
             "paymentMethod",
             "dueDate",
+            "declaredPaidAmount",
             "totalAmount",
             "paidAmount",
             "remainingAmount",
