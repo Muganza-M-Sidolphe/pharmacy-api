@@ -1078,8 +1078,20 @@ class CreateRetailWholesaleRequestSerializer(serializers.Serializer):
         choices=["CASH", "CARD", "UPI", "MOBILE_MONEY", "BANK_TRANSFER"],
         default="BANK_TRANSFER",
     )
+    dueDate = serializers.DateField(required=False, allow_null=True)
     note = serializers.CharField(required=False, allow_blank=True)
     items = RetailWholesaleRequestItemInputSerializer(many=True)
+
+    def validate(self, attrs):
+        payment_option = attrs.get("paymentOption")
+        due_date = attrs.get("dueDate")
+        if payment_option in {"PARTIAL", "CREDIT"} and not due_date:
+            raise serializers.ValidationError(
+                {"dueDate": "dueDate is required for PARTIAL and CREDIT requests"}
+            )
+        if payment_option == "FULL":
+            attrs["dueDate"] = None
+        return attrs
 
 
 class RetailWholesaleRequestItemSerializer(serializers.ModelSerializer):
@@ -1142,6 +1154,7 @@ class RetailWholesaleRequestSerializer(serializers.ModelSerializer):
     requestedByName = serializers.CharField(source="requested_by.name", read_only=True)
     paymentOption = serializers.CharField(source="payment_option", read_only=True)
     paymentMethod = serializers.CharField(source="payment_method", read_only=True)
+    dueDate = serializers.DateField(source="due_date", read_only=True, allow_null=True)
     totalAmount = serializers.SerializerMethodField()
     paidAmount = serializers.SerializerMethodField()
     remainingAmount = serializers.SerializerMethodField()
@@ -1197,6 +1210,7 @@ class RetailWholesaleRequestSerializer(serializers.ModelSerializer):
             "requestedByName",
             "paymentOption",
             "paymentMethod",
+            "dueDate",
             "totalAmount",
             "paidAmount",
             "remainingAmount",
