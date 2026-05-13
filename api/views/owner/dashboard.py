@@ -1,7 +1,7 @@
 from datetime import timedelta
 from decimal import Decimal
 
-from django.db.models import Sum, Value
+from django.db.models import Q, Sum, Value
 from django.db.models.functions import Coalesce, TruncDate
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
@@ -61,6 +61,13 @@ class OwnerDashboardBaseView(APIView):
             status__in=["APPROVED", "COMPLETED"],
         ).exclude(cashier__department="RETAIL")
 
+    def _owner_expiring_batches_queryset(self, tenant_id):
+        return StockBatch.objects.filter(
+            medicine__tenant_id=tenant_id,
+            quantity__gt=0,
+            expiry_date__isnull=False,
+        ).filter(Q(created_by__department="WHOLESALE") | Q(created_by__isnull=True))
+
 
 class OwnerDashboardSummaryView(OwnerDashboardBaseView):
     @extend_schema(
@@ -90,16 +97,13 @@ class OwnerDashboardSummaryView(OwnerDashboardBaseView):
 
         total_sales = (
             self._owner_sales_queryset(tenant_id)
-            .aggregate(total=Coalesce(Sum("total_amount"), Decimal("0.00")))
+            .aggregate(total=Coalesce(Sum("paid_amount"), Decimal("0.00")))
             .get("total")
             or Decimal("0.00")
         )
 
         expiring_soon = (
-            StockBatch.objects.filter(
-                medicine__tenant_id=tenant_id,
-                quantity__gt=0,
-                expiry_date__isnull=False,
+            self._owner_expiring_batches_queryset(tenant_id).filter(
                 expiry_date__gte=today,
                 expiry_date__lte=expiring_cutoff,
             )
@@ -151,7 +155,7 @@ class OwnerDashboardSalesTrendView(OwnerDashboardBaseView):
             )
             .annotate(day=TruncDate("created_at"))
             .values("day")
-            .annotate(amount=Coalesce(Sum("total_amount"), Decimal("0.00")))
+            .annotate(amount=Coalesce(Sum("paid_amount"), Decimal("0.00")))
             .order_by("day")
         )
 

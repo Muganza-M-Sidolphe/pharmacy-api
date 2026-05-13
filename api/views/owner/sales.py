@@ -93,7 +93,7 @@ class OwnerSalesSummaryView(OwnerSalesBaseView):
         qs = self._owner_sales_queryset(tenant_id)
 
         total_sales = qs.count()
-        total_revenue = sum((sale.total_amount for sale in qs), Decimal("0.00"))
+        total_revenue = sum((sale.paid_amount for sale in qs), Decimal("0.00"))
         average_order = (total_revenue / total_sales) if total_sales else Decimal("0.00")
 
         unique_keys = set()
@@ -141,7 +141,7 @@ class OwnerSalesDashboardView(OwnerSalesBaseView):
         sales = list(qs)
 
         total_sales = len(sales)
-        total_revenue = sum((sale.total_amount for sale in sales), Decimal("0.00"))
+        total_revenue = sum((sale.paid_amount for sale in sales), Decimal("0.00"))
         average_order = (total_revenue / total_sales) if total_sales else Decimal("0.00")
 
         unique_keys = set()
@@ -202,7 +202,7 @@ class OwnerSalesDashboardView(OwnerSalesBaseView):
             day = start + timedelta(days=i)
             day_total = sum(
                 (
-                    sale.total_amount
+                    sale.paid_amount
                     for sale in sales
                     if sale.created_at.date() == day
                 ),
@@ -272,12 +272,8 @@ class OwnerDailySalesTrendView(OwnerSalesBaseView):
         data = []
         for i in range((end - start).days + 1):
             day = start + timedelta(days=i)
-            day_sales = Sale.objects.filter(
-                tenant_id=tenant_id,
-                status__in=["APPROVED", "COMPLETED"],
-                created_at__date=day,
-            )
-            day_total = sum((sale.total_amount for sale in day_sales), Decimal("0.00"))
+            day_sales = self._owner_sales_queryset(tenant_id).filter(created_at__date=day)
+            day_total = sum((sale.paid_amount for sale in day_sales), Decimal("0.00"))
             labels.append(day.strftime("%a"))
             data.append(float(day_total))
 
@@ -300,7 +296,7 @@ class OwnerPaymentMethodsDistributionView(OwnerSalesBaseView):
         start_date = request.query_params.get("startDate")
         end_date = request.query_params.get("endDate")
 
-        qs = Sale.objects.filter(tenant_id=tenant_id, status__in=["APPROVED", "COMPLETED"])
+        qs = self._owner_sales_queryset(tenant_id)
 
         if start_date:
             try:
@@ -358,10 +354,7 @@ class OwnerExportSalesView(OwnerSalesBaseView):
         start_date = request.query_params.get("startDate")
         end_date = request.query_params.get("endDate")
 
-        qs = Sale.objects.filter(
-            tenant_id=tenant_id,
-            status__in=["APPROVED", "COMPLETED"],
-        ).order_by("created_at")
+        qs = self._owner_sales_queryset(tenant_id).order_by("created_at")
 
         if start_date:
             try:
