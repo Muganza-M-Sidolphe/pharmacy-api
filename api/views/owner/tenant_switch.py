@@ -1,7 +1,7 @@
 from datetime import timedelta
 from decimal import Decimal
 
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
@@ -70,7 +70,7 @@ class OwnerTenantsListView(APIView):
         total_sales = (
             Sale.objects.filter(tenant_id=tenant_id, status__in=["APPROVED", "COMPLETED"])
             .exclude(cashier__department="RETAIL")
-            .aggregate(total=Coalesce(Sum("total_amount"), Decimal("0.00")))
+            .aggregate(total=Coalesce(Sum("paid_amount"), Decimal("0.00")))
             .get("total")
             or Decimal("0.00")
         )
@@ -81,6 +81,8 @@ class OwnerTenantsListView(APIView):
                 expiry_date__isnull=False,
                 expiry_date__gte=today,
                 expiry_date__lte=expiring_cutoff,
+            ).filter(
+                Q(created_by__department="WHOLESALE") | Q(created_by__isnull=True)
             )
             .values("medicine_id")
             .distinct()

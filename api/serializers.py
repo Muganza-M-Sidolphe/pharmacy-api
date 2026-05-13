@@ -291,6 +291,7 @@ class SaleSerializer(serializers.ModelSerializer):
     dueAmount = serializers.DecimalField(source='due_amount', max_digits=12, decimal_places=2)
     remainingAmount = serializers.DecimalField(source='due_amount', max_digits=12, decimal_places=2, read_only=True)
     totalAmount = serializers.DecimalField(source='total_amount', max_digits=12, decimal_places=2)
+    dueDate = serializers.DateField(source='due_date', read_only=True, allow_null=True)
     currency = serializers.CharField(read_only=True)
     status = serializers.SerializerMethodField()
 
@@ -351,7 +352,7 @@ class SaleSerializer(serializers.ModelSerializer):
         model = Sale
         fields = ['id', 'tenantId', 'cashierId', 'invoiceNumber', 'customerName', 'customerPhone', 'notes', 'status', 
                   'paymentOption', 'paymentMethod', 'subtotal', 'discountAmount', 'paidAmount', 'dueAmount', 'remainingAmount',
-                  'totalAmount', 'currency', 'items', 'createdAt', 'updatedAt', 'approvedAt', 'approvedBy', 'approvedByName', 'approvedByRole']
+                  'totalAmount', 'dueDate', 'currency', 'items', 'createdAt', 'updatedAt', 'approvedAt', 'approvedBy', 'approvedByName', 'approvedByRole']
         read_only_fields = ['id', 'invoiceNumber', 'status', 'createdAt', 'updatedAt', 'approvedAt', 'approvedBy']
 
 

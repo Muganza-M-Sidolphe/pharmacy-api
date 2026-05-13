@@ -95,7 +95,7 @@ class OwnerSalesReportsDashboardView(OwnerReportBaseView):
         )
 
         aggregate = sales_qs.aggregate(
-            total_revenue=Coalesce(Sum("total_amount"), Decimal("0.00")),
+            total_revenue=Coalesce(Sum("paid_amount"), Decimal("0.00")),
             total_sales=Count("id"),
         )
 
@@ -115,7 +115,7 @@ class OwnerSalesReportsDashboardView(OwnerReportBaseView):
         daily_rows = (
             sales_qs.annotate(day=TruncDate("created_at"))
             .values("day")
-            .annotate(amount=Coalesce(Sum("total_amount"), Decimal("0.00")))
+            .annotate(amount=Coalesce(Sum("paid_amount"), Decimal("0.00")))
             .order_by("day")
         )
         amount_by_day = {row["day"]: row["amount"] for row in daily_rows}
@@ -160,7 +160,7 @@ class OwnerSalesReportsDashboardView(OwnerReportBaseView):
             self._owner_sales_queryset(tenant_id).filter(
                 created_at__date__gte=month_start,
                 created_at__date__lte=today,
-            ).aggregate(total=Coalesce(Sum("total_amount"), Decimal("0.00")))["total"]
+            ).aggregate(total=Coalesce(Sum("paid_amount"), Decimal("0.00")))["total"]
             or Decimal("0.00")
         )
 
@@ -170,7 +170,7 @@ class OwnerSalesReportsDashboardView(OwnerReportBaseView):
             self._owner_sales_queryset(tenant_id).filter(
                 created_at__date__gte=previous_start,
                 created_at__date__lte=previous_end,
-            ).aggregate(total=Coalesce(Sum("total_amount"), Decimal("0.00")))["total"]
+            ).aggregate(total=Coalesce(Sum("paid_amount"), Decimal("0.00")))["total"]
             or Decimal("0.00")
         )
 
