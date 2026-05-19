@@ -71,8 +71,8 @@ class AccountantAnalyticsDashboardView(AccountantAnalyticsBaseView):
         )
 
         # Calculate KPIs
-        current_revenue = current_sales.aggregate(Sum('total_amount'))['total_amount__sum'] or Decimal('0')
-        previous_revenue = previous_sales.aggregate(Sum('total_amount'))['total_amount__sum'] or Decimal('0')
+        current_revenue = current_sales.aggregate(Sum('paid_amount'))['paid_amount__sum'] or Decimal('0')
+        previous_revenue = previous_sales.aggregate(Sum('paid_amount'))['paid_amount__sum'] or Decimal('0')
         revenue_change = ((current_revenue - previous_revenue) / previous_revenue * 100) if previous_revenue else Decimal('0')
 
         avg_order_value = (current_revenue / current_sales.count()) if current_sales.count() > 0 else Decimal('0')
@@ -126,7 +126,7 @@ class AccountantAnalyticsDashboardView(AccountantAnalyticsBaseView):
             )
             .annotate(date=TruncDate('created_at'))
             .values('date')
-            .annotate(revenue=Sum('total_amount'), transactions=Count('id'))
+            .annotate(revenue=Sum('paid_amount'), transactions=Count('id'))
             .order_by('date')
         )
 
@@ -158,7 +158,7 @@ class AccountantAnalyticsDashboardView(AccountantAnalyticsBaseView):
             )
             .annotate(hour=TruncHour('created_at'))
             .values('hour')
-            .annotate(sales=Count('id'), revenue=Sum('total_amount'))
+            .annotate(sales=Count('id'), revenue=Sum('paid_amount'))
             .order_by('hour')
         )
 
@@ -190,7 +190,7 @@ class AccountantAnalyticsDashboardView(AccountantAnalyticsBaseView):
             )
             .annotate(date=TruncDate('created_at'))
             .values('date')
-            .annotate(revenue=Sum('total_amount'), transactions=Count('id'))
+            .annotate(revenue=Sum('paid_amount'), transactions=Count('id'))
             .order_by('date')
         )
 
@@ -223,7 +223,7 @@ class AccountantAnalyticsDashboardView(AccountantAnalyticsBaseView):
         """Generate forecasts based on historical data"""
         # Simple moving average forecast
         daily_revenue = sales_queryset.annotate(date=TruncDate('created_at')).values('date').annotate(
-            revenue=Sum('total_amount')
+            revenue=Sum('paid_amount')
         ).order_by('date')
 
         revenues = [float(item['revenue'] or 0) for item in daily_revenue]
@@ -339,8 +339,8 @@ class AccountantAnalyticsKPIView(AccountantAnalyticsBaseView):
             tenant_id=tenant_id, status="COMPLETED", created_at__date__gte=previous_start, created_at__date__lt=start_date
         )
 
-        current_revenue = current_sales.aggregate(Sum('total_amount'))['total_amount__sum'] or Decimal('0')
-        previous_revenue = previous_sales.aggregate(Sum('total_amount'))['total_amount__sum'] or Decimal('0')
+        current_revenue = current_sales.aggregate(Sum('paid_amount'))['paid_amount__sum'] or Decimal('0')
+        previous_revenue = previous_sales.aggregate(Sum('paid_amount'))['paid_amount__sum'] or Decimal('0')
         revenue_change = ((current_revenue - previous_revenue) / previous_revenue * 100) if previous_revenue else Decimal('0')
 
         avg_order_value = (current_revenue / current_sales.count()) if current_sales.count() > 0 else Decimal('0')
@@ -445,7 +445,7 @@ class AccountantAnalyticsInsightsView(AccountantAnalyticsBaseView):
         sales = Sale.objects.filter(
             tenant_id=tenant_id, status="COMPLETED", created_at__date__gte=start_date, created_at__date__lte=end_date
         )
-        revenue = sales.aggregate(Sum('total_amount'))['total_amount__sum'] or Decimal('0')
+        revenue = sales.aggregate(Sum('paid_amount'))['paid_amount__sum'] or Decimal('0')
         unique_customers = sales.values('customer_phone').distinct().count()
         currency = (tenant.currency if tenant else "USD")
 

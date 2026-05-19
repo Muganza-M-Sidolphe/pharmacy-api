@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from django.core.paginator import Paginator
+from django.db.models import Q
 from django.utils import timezone
 from datetime import timedelta
 
@@ -27,6 +28,12 @@ class StorekeeperExpiryBaseView(APIView):
             return None, tenant_id, Response({"detail": error_message}, status=error_status)
         return tenant, tenant_id, None
 
+    def _expiry_batches_queryset(self, tenant_id):
+        qs = StockBatch.objects.filter(medicine__tenant_id=tenant_id)
+        if UserTenant.objects.filter(tenant_id=tenant_id, role="OWNER").exists():
+            qs = qs.filter(Q(created_by__department="WHOLESALE") | Q(created_by__isnull=True))
+        return qs
+
 
 class ExpiryAlertsView(StorekeeperExpiryBaseView):
     """API endpoints for expiry alerts module."""
@@ -50,8 +57,7 @@ class ExpiryAlertsView(StorekeeperExpiryBaseView):
         today = timezone.now().date()
         cutoff = today + timedelta(days=days)
 
-        qs = StockBatch.objects.filter(
-            medicine__tenant_id=tenant_id,
+        qs = self._expiry_batches_queryset(tenant_id).filter(
             expiry_date__isnull=False,
             expiry_date__lte=cutoff
         ).order_by('expiry_date')
@@ -103,8 +109,7 @@ class ExpiryAlertsSummaryView(StorekeeperExpiryBaseView):
         
         # Total expiring within 30 days
         cutoff_30 = today + timedelta(days=30)
-        total_expiring = StockBatch.objects.filter(
-            medicine__tenant_id=tenant_id,
+        total_expiring = self._expiry_batches_queryset(tenant_id).filter(
             expiry_date__isnull=False,
             expiry_date__lte=cutoff_30,
             expiry_date__gt=today
@@ -112,16 +117,14 @@ class ExpiryAlertsSummaryView(StorekeeperExpiryBaseView):
 
         # Critical: expiring within 7 days
         cutoff_7 = today + timedelta(days=7)
-        critical = StockBatch.objects.filter(
-            medicine__tenant_id=tenant_id,
+        critical = self._expiry_batches_queryset(tenant_id).filter(
             expiry_date__isnull=False,
             expiry_date__lte=cutoff_7,
             expiry_date__gt=today
         ).count()
 
         # Expired: already past expiry date
-        expired = StockBatch.objects.filter(
-            medicine__tenant_id=tenant_id,
+        expired = self._expiry_batches_queryset(tenant_id).filter(
             expiry_date__isnull=False,
             expiry_date__lt=today
         ).count()
@@ -153,8 +156,7 @@ class ExpiryAlertsCriticalView(StorekeeperExpiryBaseView):
         today = timezone.now().date()
         cutoff_7 = today + timedelta(days=7)
 
-        qs = StockBatch.objects.filter(
-            medicine__tenant_id=tenant_id,
+        qs = self._expiry_batches_queryset(tenant_id).filter(
             expiry_date__isnull=False,
             expiry_date__lte=cutoff_7,
             expiry_date__gt=today
@@ -194,8 +196,7 @@ class ExpiredBatchesView(StorekeeperExpiryBaseView):
 
         today = timezone.now().date()
 
-        qs = StockBatch.objects.filter(
-            medicine__tenant_id=tenant_id,
+        qs = self._expiry_batches_queryset(tenant_id).filter(
             expiry_date__isnull=False,
             expiry_date__lt=today
         ).order_by('-expiry_date')

@@ -69,7 +69,7 @@ class AccountantFinancialReportView(AccountantReportsBaseView):
             except ValueError:
                 pass
 
-        total_revenue = sum((s.total_amount for s in sales_qs), Decimal('0.00'))
+        total_revenue = sum((s.paid_amount for s in sales_qs), Decimal('0.00'))
         total_discounts = sum((s.discount_amount for s in sales_qs), Decimal('0.00'))
         total_expenses = sum((e.amount for e in expenses_qs), Decimal('0.00'))
         net_profit = total_revenue - total_expenses
@@ -174,7 +174,7 @@ class AccountantSalesReportView(AccountantReportsBaseView):
             except ValueError:
                 pass
 
-        total_revenue = sum((s.total_amount for s in qs), Decimal('0.00'))
+        total_revenue = sum((s.paid_amount for s in qs), Decimal('0.00'))
         total_discount = sum((s.discount_amount for s in qs), Decimal('0.00'))
         total_paid = sum((s.paid_amount for s in qs), Decimal('0.00'))
         total_due = sum((s.due_amount for s in qs), Decimal('0.00'))
@@ -244,7 +244,7 @@ class AccountantExportReportView(AccountantReportsBaseView):
                 except ValueError:
                     pass
 
-            total_revenue = sum((s.total_amount for s in sales_qs), Decimal('0.00'))
+            total_revenue = sum((s.paid_amount for s in sales_qs), Decimal('0.00'))
             total_expenses = sum((e.amount for e in expenses_qs), Decimal('0.00'))
             net_profit = total_revenue - total_expenses
             profit_margin = float((net_profit / total_revenue * 100) if total_revenue else 0.0)
