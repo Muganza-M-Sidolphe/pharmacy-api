@@ -53,7 +53,7 @@ class AccountantDashboardSummaryView(AccountantHistoryBaseView):
         notifications_qs = Notification.objects.filter(tenant_id=tenant_id)
 
         total_sales = sales_qs.count()
-        total_revenue = sum((s.total_amount for s in sales_qs), Decimal('0.00'))
+        total_revenue = sum((s.paid_amount for s in sales_qs), Decimal('0.00'))
         total_paid = sum((s.paid_amount for s in sales_qs), Decimal('0.00'))
         total_due = sum((s.due_amount for s in sales_qs), Decimal('0.00'))
         total_expenses = sum((e.amount for e in expenses_qs), Decimal('0.00'))

@@ -53,7 +53,7 @@ class AccountantSalesSummaryView(AccountantSalesBaseView):
 		qs = self._wholesale_sales_queryset(tenant_id)
 
 		total_sales = qs.count()
-		total_revenue = sum((s.total_amount for s in qs), Decimal('0.00'))
+		total_revenue = sum((s.paid_amount for s in qs), Decimal('0.00'))
 		average_order = (total_revenue / total_sales) if total_sales else Decimal('0.00')
 
 		# Unique customers based on phone or name
@@ -110,7 +110,7 @@ class AccountantDailySalesTrendView(AccountantSalesBaseView):
 		for i in range(delta + 1):
 			day = start + timedelta(days=i)
 			day_total = self._wholesale_sales_queryset(tenant_id).filter(created_at__date=day)
-			total_amount = sum((s.total_amount for s in day_total), Decimal('0.00'))
+			total_amount = sum((s.paid_amount for s in day_total), Decimal('0.00'))
 			labels.append(day.strftime('%a'))
 			data.append(float(total_amount))
 

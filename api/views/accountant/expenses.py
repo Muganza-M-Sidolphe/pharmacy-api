@@ -242,7 +242,7 @@ class AccountantExpensesSummaryView(AccountantExpensesBaseView):
         end_date = request.query_params.get('endDate')
 
         expenses_qs = self._expense_scope(tenant_id)
-        sales_qs = Sale.objects.filter(tenant_id=tenant_id, status__in=['APPROVED', 'COMPLETED'])
+        sales_qs = Sale.objects.filter(tenant_id=tenant_id, status__in=['APPROVED', 'COMPLETED']).exclude(cashier__department='RETAIL')
 
         if start_date:
             try:
@@ -260,7 +260,7 @@ class AccountantExpensesSummaryView(AccountantExpensesBaseView):
                 pass
 
         total_expenses = sum((x.amount for x in expenses_qs), Decimal('0.00'))
-        total_revenue = sum((s.total_amount for s in sales_qs), Decimal('0.00'))
+        total_revenue = sum((s.paid_amount for s in sales_qs), Decimal('0.00'))
         net_profit = total_revenue - total_expenses
         expense_ratio = float((total_expenses / total_revenue * 100) if total_revenue and total_revenue != 0 else 0.0)
 
