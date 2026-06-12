@@ -167,13 +167,24 @@ def _sale_payload(sale):
 class RetailMedicinesView(RetailBaseView):
     required_subscription_feature = "inventory_management"
 
-    def get(self, request):
+    def get(self, request, medicine_id=None):
         tenant = self._get_tenant(request)
         if not tenant:
             return Response({"success": False, "message": "No tenant context"}, status=403)
 
+        is_collaborative_retail = self._is_collaborative_retail(request, tenant=tenant)
+        if medicine_id:
+            medicine_filters = {"id": medicine_id, "tenant": tenant}
+            if is_collaborative_retail:
+                medicine_filters["created_by"] = request.user
+
+            medicine = Medicine.objects.filter(**medicine_filters).prefetch_related("batches").first()
+            if not medicine:
+                return Response({"success": False, "message": "Medicine not found"}, status=404)
+            return Response({"success": True, "data": _medicine_payload(medicine), "currency": tenant.currency})
+
         medicines = Medicine.objects.filter(tenant=tenant)
-        if self._is_collaborative_retail(request, tenant=tenant):
+        if is_collaborative_retail:
             medicines = medicines.filter(created_by=request.user).prefetch_related(
                 Prefetch("batches", queryset=StockBatch.objects.filter(created_by=request.user).order_by("-created_at"))
             )
@@ -225,6 +236,62 @@ class RetailMedicinesView(RetailBaseView):
             supplier_address=request.data.get("supplier_address"),
         )
         return Response({"success": True, "data": _medicine_payload(medicine)}, status=201)
+
+    def patch(self, request, medicine_id):
+        tenant = self._get_tenant(request)
+        if not tenant:
+            return Response({"success": False, "message": "No tenant context"}, status=403)
+        is_collaborative_retail = self._is_collaborative_retail(request, tenant=tenant)
+
+        medicine_filters = {"id": medicine_id, "tenant": tenant}
+        if is_collaborative_retail:
+            medicine_filters["created_by"] = request.user
+
+        medicine = Medicine.objects.filter(**medicine_filters).first()
+        if not medicine:
+            return Response({"success": False, "message": "Medicine not found"}, status=404)
+
+        update_fields = [
+            "brand_name",
+            "generic_name",
+            "manufacturer",
+            "category",
+            "unit",
+            "description",
+        ]
+        changed = False
+        for field in update_fields:
+            if field in request.data:
+                setattr(medicine, field, request.data[field])
+                changed = True
+
+        if changed:
+            medicine.save(update_fields=[field for field in update_fields if field in request.data])
+
+        return Response({"success": True, "data": _medicine_payload(medicine)})
+
+    def delete(self, request, medicine_id):
+        tenant = self._get_tenant(request)
+        if not tenant:
+            return Response({"success": False, "message": "No tenant context"}, status=403)
+        is_collaborative_retail = self._is_collaborative_retail(request, tenant=tenant)
+
+        medicine_filters = {"id": medicine_id, "tenant": tenant}
+        if is_collaborative_retail:
+            medicine_filters["created_by"] = request.user
+
+        medicine = Medicine.objects.filter(**medicine_filters).first()
+        if not medicine:
+            return Response({"success": False, "message": "Medicine not found"}, status=404)
+
+        if SaleItem.objects.filter(medicine=medicine).exists():
+            return Response(
+                {"success": False, "message": "Medicine cannot be deleted because it is used in existing sales records"},
+                status=400,
+            )
+
+        medicine.delete()
+        return Response({"success": True})
 
 
 class RetailStockView(RetailBaseView):
@@ -586,11 +653,17 @@ class RetailDashboardView(RetailBaseView):
             or Decimal("0.00")
         )
 
-        expiring_count = stock_batches_qs.filter(
+        expiring_batches = stock_batches_qs.filter(
             expiry_date__isnull=False,
             expiry_date__lte=today + timedelta(days=30),
-        ).count()
+        ).select_related("medicine").order_by("expiry_date")
+        expiring_count = expiring_batches.count()
         total_medicines = medicines_qs.count()
+        low_stock_count = (
+            medicines_qs.annotate(total_qty=Coalesce(Sum("batches__quantity"), Value(0)))
+            .filter(total_qty__lt=LOW_STOCK_THRESHOLD)
+            .count()
+        )
 
         top_medicines_filter = {"sale__tenant": tenant}
         if is_collaborative_retail:
@@ -626,6 +699,24 @@ class RetailDashboardView(RetailBaseView):
             or Decimal("0.00")
         )
 
+        expiring_data = [
+            {
+                "id": str(batch.id),
+                "batch_number": batch.batch_number,
+                "quantity": batch.quantity,
+                "expiry_date": batch.expiry_date.isoformat() if batch.expiry_date else None,
+                "supplier_name": batch.supplier_name,
+                "supplier_phone": batch.supplier_phone,
+                "supplier_address": batch.supplier_address,
+                "Medicine": {
+                    "id": str(batch.medicine.id),
+                    "name": batch.medicine.brand_name,
+                    "generic_name": batch.medicine.generic_name,
+                },
+            }
+            for batch in expiring_batches
+        ]
+
         daily_qs = (
             sales_base.filter(created_at__date__gte=week_start, created_at__date__lte=today)
             .annotate(day=TruncDate("created_at"))
@@ -649,8 +740,12 @@ class RetailDashboardView(RetailBaseView):
                     "stock": {
                         "total_stock_value": float(stock_value),
                         "total_medicines": total_medicines,
+                        "low_stock_count": low_stock_count,
                     },
-                    "expiring": {"count": expiring_count},
+                    "expiring": {
+                        "count": expiring_count,
+                        "data": expiring_data,
+                    },
                     "top_medicines": top_medicines,
                     "payment_methods": {
                         "cash_sales": float(cash_sales),

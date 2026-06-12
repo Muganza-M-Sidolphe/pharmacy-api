@@ -13,7 +13,7 @@ User = get_user_model()
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ('id', 'email', 'name', 'department', 'password')
+        fields = ('id', 'email', 'name', 'department', 'password', 'firebase_token')
         
 
 class RegisterTenantSerializer(serializers.Serializer):
@@ -60,7 +60,11 @@ class UserListSerializer(serializers.ModelSerializer):
 class UserUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["name", "email", "department"]
+        fields = ["name", "email", "department", "firebase_token"]
+
+
+class UserFirebaseTokenSerializer(serializers.Serializer):
+    firebase_token = serializers.CharField(max_length=1024)
 
 
 # Tenant/Pharmacy settings serializer

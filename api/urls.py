@@ -2,6 +2,7 @@ from django.urls import path
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
 from .views import RegisterTenantView,RegisterOwnerView, LoginView, LogoutView,SelectTenantView,CreateUserView, OwnerUserListView,OwnerUpdateUserView,OwnerUserStatusView,OwnerResetUserPasswordView,UsersSummaryView,SearchUsersView,RolesListView,ChangePasswordView, ForgotPasswordView, ResetPasswordView, OwnerUsersDashboardView, OwnerNotificationsView, OwnerNotificationDetailView, OwnerNotificationsDashboardView, OwnerDashboardView, OwnerDashboardSummaryView, OwnerDashboardSalesTrendView, OwnerDashboardPartialInvoicesView, OwnerTenantsListView, OwnerSwitchTenantView, PharmacySettingsView, OwnerPharmaciesView, OwnerSettingsOverviewView, OwnerSettingsConsolidatedView, OwnerInvoicesListView, OwnerInvoiceDetailView, OwnerInvoicesSummaryView, OwnerInvoicesDashboardView, OwnerApprovePartialInvoiceView, OwnerRejectPartialInvoiceView, OwnerInventoryView, OwnerInventorySummaryView, OwnerInventoryMedicineDetailView, OwnerSalesDashboardView, OwnerSalesSummaryView, OwnerDailySalesTrendView, OwnerPaymentMethodsDistributionView, OwnerExportSalesView, OwnerSalesReportsDashboardView, OwnerUserManagementReportView, OwnerUsersSummaryCardsView, SupportTicketViewSet
+from .views.user_token import UserFirebaseTokenView
 from .views.storekeeper.inventory import InventoryListCreateView
 from .views.storekeeper.expiry_alerts import ExpiryAlertsView, ExpiryAlertsSummaryView, ExpiryAlertsCriticalView, ExpiredBatchesView
 from .views.cashier.dashboard import CashierDashboardSummaryView, CashierStockAlertsView, CashierAvailableMedicinesView, CashierPendingRequestsView, CashierExpiryAlertsView
@@ -68,6 +69,8 @@ urlpatterns = [
     path("subscriptions/invoices/<uuid:invoice_id>/download/", SubscriptionInvoiceDownloadView.as_view(), name="subscriptions-invoice-download"),
     path("retails/medicines", RetailMedicinesView.as_view(), name="retails-medicines-no-slash"),
     path("retails/medicines/", RetailMedicinesView.as_view(), name="retails-medicines"),
+    path("retails/medicines/<uuid:medicine_id>", RetailMedicinesView.as_view(), name="retails-medicine-detail-no-slash"),
+    path("retails/medicines/<uuid:medicine_id>/", RetailMedicinesView.as_view(), name="retails-medicine-detail"),
     path("retails/wholesale-catalog", CollaborativeRetailWholesaleCatalogView.as_view(), name="retails-wholesale-catalog-no-slash"),
     path("retails/wholesale-catalog/", CollaborativeRetailWholesaleCatalogView.as_view(), name="retails-wholesale-catalog"),
     path("retails/sales", RetailSalesView.as_view(), name="retails-sales-no-slash"),
@@ -122,6 +125,7 @@ urlpatterns = [
     path("owner/notifications/dashboard/", OwnerNotificationsDashboardView.as_view(), name="owner-notifications-dashboard"),
     path("owner/notifications/<uuid:notification_id>/", OwnerNotificationDetailView.as_view(), name="owner-notification-detail"),
     path("owner/dashboard/", OwnerDashboardView.as_view(), name="owner-dashboard"),
+    path("users/firebase-token/", UserFirebaseTokenView.as_view(), name="user-firebase-token"),
     path("owner/dashboard/summary/", OwnerDashboardSummaryView.as_view(), name="owner-dashboard-summary"),
     path("owner/dashboard/sales-trend/", OwnerDashboardSalesTrendView.as_view(), name="owner-dashboard-sales-trend"),
     path("owner/dashboard/partial-invoices/", OwnerDashboardPartialInvoicesView.as_view(), name="owner-dashboard-partial-invoices"),

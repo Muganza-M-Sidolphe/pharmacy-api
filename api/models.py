@@ -63,6 +63,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         choices=DEPARTMENT_CHOICES,
         default="WHOLESALE",
     )
+    firebase_token = models.CharField(max_length=1024, null=True, blank=True)
     must_change_password = models.BooleanField(default=False)
     is_super_admin = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
