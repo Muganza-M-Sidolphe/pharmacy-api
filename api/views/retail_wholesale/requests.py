@@ -16,6 +16,7 @@ from ...serializers import (
     CreateRetailWholesaleRequestSerializer,
     RetailWholesaleRequestSerializer,
 )
+from ...utils.firebase_notifications import send_firebase_notification
 from ...utils.subscription_access import check_subscription_access
 
 
@@ -57,6 +58,16 @@ def _notify_users(tenant_id, recipients, title, message):
         )
     if notifications:
         Notification.objects.bulk_create(notifications)
+        for notification in notifications:
+            user = notification.recipient
+            token = getattr(user, "firebase_token", None)
+            if token:
+                send_firebase_notification(
+                    token,
+                    title,
+                    message,
+                    data={"notification_id": str(notification.id), "tenant_id": str(notification.tenant_id)},
+                )
 
 
 def _send_workflow_emails(recipients, subject, message):
@@ -765,9 +776,14 @@ class RetailWholesaleRequestDecisionView(APIView):
 
             payment_method = request.data.get("paymentMethod")
             rw_request.paid_amount = paid_amount
+            if rw_request.payment_option == "PARTIAL" and payment_amount_raw not in (None, ""):
+                rw_request.declared_paid_amount = paid_amount
             if payment_method:
                 rw_request.payment_method = payment_method
-            rw_request.save(update_fields=["paid_amount", "payment_method", "updated_at"])
+            update_fields = ["paid_amount", "payment_method", "updated_at"]
+            if rw_request.payment_option == "PARTIAL" and payment_amount_raw not in (None, ""):
+                update_fields.append("declared_paid_amount")
+            rw_request.save(update_fields=update_fields)
 
         rw_request.status = rule["next_status"]
         rw_request.decision_note = request.data.get("note")
