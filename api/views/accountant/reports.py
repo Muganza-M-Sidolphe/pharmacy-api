@@ -10,6 +10,7 @@ import csv
 
 from ...models import Sale, Medicine, StockBatch, Expense, SaleItem
 from ...serializers import FinancialReportSerializer, InventoryReportSerializer, SalesReportSerializer
+from ...utils.report_pdf import render_report_pdf
 from ...utils.reporting import display_label, money, percent, report_branding, report_period, report_theme
 from ...utils.subscription_access import authorize_tenant_access
 from drf_spectacular.utils import extend_schema
@@ -248,6 +249,28 @@ class AccountantFinancialReportView(AccountantReportsBaseView):
                 ],
             },
         })
+
+
+class AccountantFinancialReportDownloadView(AccountantFinancialReportView):
+    """Download the designed financial performance report as PDF."""
+
+    @extend_schema(
+        description="Download designed financial performance report as PDF",
+        tags=["accountant"],
+        responses=None,
+    )
+    def get(self, request):
+        report_response = super().get(request)
+        if report_response.status_code != 200:
+            return report_response
+
+        report = report_response.data["printReport"]
+        pdf_bytes = render_report_pdf(report)
+        filename = f"financial_performance_report_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf"
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        response["Access-Control-Expose-Headers"] = "Content-Disposition"
+        return response
 
 
 class AccountantInventoryReportView(AccountantReportsBaseView):

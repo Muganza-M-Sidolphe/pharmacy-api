@@ -303,6 +303,20 @@ class SubscriptionAccessEndpointTests(TestCase, SubscriptionAccessTestMixin):
             ],
         )
 
+    def test_retail_report_download_returns_pdf(self):
+        cashier = self.create_user("retail-report-pdf@example.com", "Retail PDF", department="RETAIL")
+        tenant = self.create_tenant("Retail PDF Pharmacy")
+        UserTenant.objects.create(user=cashier, tenant=tenant, role="PHARMACIST")
+        self.attach_subscription(tenant, "growth")
+
+        self.client.force_authenticate(user=cashier)
+        response = self.client.get(reverse("retails-reports-download"), {"tenantId": str(tenant.id)})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn("attachment;", response["Content-Disposition"])
+        self.assertTrue(response.content.startswith(b"%PDF-"))
+
     def test_accountant_financial_report_includes_print_report_sections(self):
         from .models import Expense, ExpenseCategory, Medicine, Sale, SaleItem, StockBatch
 
@@ -357,6 +371,22 @@ class SubscriptionAccessEndpointTests(TestCase, SubscriptionAccessTestMixin):
         self.assertEqual(report["summary"]["totalRevenue"], "1600.00")
         self.assertEqual(report["summary"]["netProfit"], "1400.00")
         self.assertEqual(report["sections"][0]["rows"][0]["category"], "OTC Medicines")
+
+    def test_accountant_financial_report_download_returns_pdf(self):
+        accountant = self.create_user("accountant-report-pdf@example.com", "Accountant PDF")
+        owner = self.create_user("accountant-owner-pdf@example.com", "Owner")
+        tenant = self.create_tenant("Accountant PDF Pharmacy")
+        UserTenant.objects.create(user=owner, tenant=tenant, role="OWNER")
+        UserTenant.objects.create(user=accountant, tenant=tenant, role="ACCOUNTANT")
+        self.attach_subscription(tenant, "growth")
+
+        self.client.force_authenticate(user=accountant)
+        response = self.client.get(reverse("accountant-reports-financial-download"), {"tenantId": str(tenant.id)})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn("attachment;", response["Content-Disposition"])
+        self.assertTrue(response.content.startswith(b"%PDF-"))
 
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")

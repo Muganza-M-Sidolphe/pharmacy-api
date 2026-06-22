@@ -12,7 +12,7 @@ from .views.cashier.history import CashierHistorySummaryView, CashierSalesHistor
 from .views.accountant.invoices import AccountantInvoicesListView, AccountantInvoiceDetailView, AccountantApproveInvoiceView, AccountantRecordPartialPaymentView, AccountantMarkFullyPaidView, AccountantInvoicesSummaryView, AccountantInvoicesReportView
 from .views.accountant.sales import AccountantSalesSummaryView, AccountantDailySalesTrendView, AccountantPaymentMethodsDistributionView, AccountantExportSalesView
 from .views.accountant.expenses import AccountantExpensesListCreateView, AccountantExpenseDetailView, AccountantExpensesSummaryView
-from .views.accountant.reports import AccountantFinancialReportView, AccountantInventoryReportView, AccountantSalesReportView, AccountantExportReportView
+from .views.accountant.reports import AccountantFinancialReportView, AccountantFinancialReportDownloadView, AccountantInventoryReportView, AccountantSalesReportView, AccountantExportReportView
 from .views.accountant.history import AccountantDashboardSummaryView, AccountantRecentNotificationsView, AccountantApprovedSalesListView, AccountantMarkNotificationAsReadView, AccountantMarkAllNotificationsAsReadView
 from .views.accountant.analytics import AccountantAnalyticsDashboardView, AccountantAnalyticsKPIView, AccountantAnalyticsTrendsView, AccountantAnalyticsForecastsView, AccountantAnalyticsInsightsView
 from .views.accountant.dashboard import AccountantDashboardPaymentsView, AccountantPendingPartialPaymentsView, AccountantOverduePaymentsView, AccountantTotalPaidAmountView, AccountantSelectedForInvoiceView, AccountantPartialPaymentRequestsView, AccountantQuickStatsView, PartialInvoiceReminderConfigView, PartialInvoiceReminderSendView, PartialInvoiceReminderHistoryView
@@ -33,7 +33,7 @@ from .views.role_notifications import (
 )
 from .views.owner.partial_payments import OwnerPartialPaymentsListView, OwnerPartialPaymentSummaryView, OwnerApprovePartialPaymentView, OwnerRejectPartialPaymentView
 from .views.pricing import PricingPlansView, PricingCompareView, PricingFAQView, PricingCalculateUpgradeView, PricingRecommendationView, SubscriptionPlansView, SubscriptionPlanDetailView, SubscriptionHistoryView, SubscriptionUpgradeView, SubscriptionDowngradeView, SubscriptionCancelView, SubscriptionTrialRenewView, SubscriptionTrialStatusView, SubscriptionLimitsView, SubscriptionFeatureView, SubscriptionUsageView, SubscriptionPaymentView, SubscriptionPaymentStatusView, SubscriptionMtnWebhookView, SubscriptionInvoicesView, SubscriptionInvoiceDownloadView
-from .views.retail import RetailMedicinesView, RetailSalesView, RetailInsuranceSalesView, RetailExpensesView, RetailStockView, RetailExpiringMedicinesView, RetailLowStockView, RetailDashboardView, RetailReportsView, RetailExpenseDeleteView, CollaborativeRetailWholesaleCatalogView, RetailRecentNotificationsView, RetailMarkNotificationAsReadView, RetailMarkAllNotificationsAsReadView
+from .views.retail import RetailMedicinesView, RetailSalesView, RetailInsuranceSalesView, RetailExpensesView, RetailStockView, RetailExpiringMedicinesView, RetailLowStockView, RetailDashboardView, RetailReportsView, RetailReportsDownloadView, RetailExpenseDeleteView, CollaborativeRetailWholesaleCatalogView, RetailRecentNotificationsView, RetailMarkNotificationAsReadView, RetailMarkAllNotificationsAsReadView
 from .views.retail_wholesale import RetailWholesaleRequestListCreateView, RetailWholesaleRequestDecisionView
 from .views.super_admin import SuperAdminMetricsView, SuperAdminTenantsView, SuperAdminTenantDetailView, SuperAdminTenantStatusView, SuperAdminSubscriptionsView, SuperAdminSubscriptionDetailView, SuperAdminSubscriptionPlanView, SuperAdminExtendTrialView, SuperAdminExpireSubscriptionView, SuperAdminCancelSubscriptionView, SuperAdminUsersView, SuperAdminPlansView, SuperAdminPlanDetailView, SuperAdminAuditLogsView, SuperAdminSettingsView
 
@@ -91,6 +91,8 @@ urlpatterns = [
     path("retails/dashboard/", RetailDashboardView.as_view(), name="retails-dashboard"),
     path("retails/reports", RetailReportsView.as_view(), name="retails-reports-no-slash"),
     path("retails/reports/", RetailReportsView.as_view(), name="retails-reports"),
+    path("retails/reports/download", RetailReportsDownloadView.as_view(), name="retails-reports-download-no-slash"),
+    path("retails/reports/download/", RetailReportsDownloadView.as_view(), name="retails-reports-download"),
     path("retails/notifications/", RetailRecentNotificationsView.as_view(), name="retails-notifications"),
     path("retails/notifications/<uuid:notification_id>/read/", RetailMarkNotificationAsReadView.as_view(), name="retails-mark-notification-read"),
     path("retails/notifications/read-all/", RetailMarkAllNotificationsAsReadView.as_view(), name="retails-mark-all-notifications-read"),
@@ -196,6 +198,7 @@ urlpatterns = [
     path("accountant/expenses/<uuid:expense_id>/", AccountantExpenseDetailView.as_view(), name="accountant-expense-detail"),
     path("accountant/expenses/summary/", AccountantExpensesSummaryView.as_view(), name="accountant-expenses-summary"),
     path("accountant/reports/financial/", AccountantFinancialReportView.as_view(), name="accountant-reports-financial"),
+    path("accountant/reports/financial/download/", AccountantFinancialReportDownloadView.as_view(), name="accountant-reports-financial-download"),
     path("accountant/reports/inventory/", AccountantInventoryReportView.as_view(), name="accountant-reports-inventory"),
     path("accountant/reports/sales/", AccountantSalesReportView.as_view(), name="accountant-reports-sales"),
     path("accountant/reports/export/", AccountantExportReportView.as_view(), name="accountant-reports-export"),

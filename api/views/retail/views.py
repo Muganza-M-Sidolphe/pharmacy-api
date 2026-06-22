@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from django.db.models import Count, DecimalField, ExpressionWrapper, F, Prefetch, Q, Sum, Value
 from django.db.models.functions import Coalesce, TruncDate
+from django.http import HttpResponse
 from django.utils.dateparse import parse_date
 from django.utils import timezone
 from rest_framework import status
@@ -11,6 +12,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ...models import Expense, ExpenseCategory, Medicine, Sale, SaleItem, StockBatch, UserTenant
+from ...utils.report_pdf import render_report_pdf
 from ...utils.reporting import (
     MONEY_ZERO,
     display_label,
@@ -1041,3 +1043,20 @@ class RetailReportsView(RetailBaseView):
             },
         }
         return Response({"success": True, "data": data, "currency": tenant.currency})
+
+
+class RetailReportsDownloadView(RetailReportsView):
+    required_subscription_feature = "advanced_reports"
+
+    def get(self, request):
+        report_response = super().get(request)
+        if report_response.status_code != status.HTTP_200_OK:
+            return report_response
+
+        report = report_response.data["data"]["printReport"]
+        pdf_bytes = render_report_pdf(report)
+        filename = f"retail_financial_report_{timezone.now().strftime('%Y%m%d%H%M%S')}.pdf"
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        response["Access-Control-Expose-Headers"] = "Content-Disposition"
+        return response
