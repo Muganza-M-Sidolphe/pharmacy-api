@@ -115,6 +115,123 @@ class RetailExpensesAPITestCase(TestCase):
         self.assertEqual(response.data["message"], "expense_date must be in YYYY-MM-DD format")
 
 
+@override_settings(SECURE_SSL_REDIRECT=False)
+class RetailMedicinesAPITestCase(TestCase):
+    def setUp(self):
+        from .models import Medicine, StockBatch
+
+        self.client = APIClient()
+        self.user = User.objects.create(
+            email="retail-medicine@example.com",
+            name="Retail Medicine",
+            department="RETAIL",
+        )
+        self.user.set_password("pass1234")
+        self.user.save()
+        self.tenant = Tenant.objects.create(
+            name="Retail Medicine Pharmacy",
+            email="retail-medicine-pharmacy@example.com",
+            phone="123456789",
+            address="Kigali",
+            license_number="RET-MED-001",
+        )
+        UserTenant.objects.create(user=self.user, tenant=self.tenant, role="PHARMACIST")
+        TenantSubscription.objects.create(
+            tenant=self.tenant,
+            plan_id="growth",
+            status="ACTIVE",
+            billing_cycle="monthly",
+            subscription_start_date=timezone.now().date(),
+            subscription_end_date=timezone.now().date() + timezone.timedelta(days=30),
+        )
+        self.medicine = Medicine.objects.create(
+            tenant=self.tenant,
+            brand_name="Old Name",
+            generic_name="Old Generic",
+        )
+        self.batch = StockBatch.objects.create(
+            medicine=self.medicine,
+            batch_number="OLD-BATCH",
+            quantity=5,
+            purchase_price=Decimal("1.00"),
+            selling_price=Decimal("2.00"),
+            expiry_date="2026-12-31",
+        )
+
+    def test_patch_updates_medicine_and_stock_from_frontend_field_names(self):
+        self.client.force_authenticate(user=self.user)
+        response = self.client.patch(
+            reverse("retails-medicine-detail", kwargs={"medicine_id": self.medicine.id}),
+            {
+                "tenantId": str(self.tenant.id),
+                "name": "New Name",
+                "genericName": "New Generic",
+                "batchNumber": "NEW-BATCH",
+                "quantity": 12,
+                "sellingPrice": "3.50",
+                "expiryDate": "2027-01-31",
+                "wholesaleName": "Manual Wholesale Ltd",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["success"])
+
+        self.medicine.refresh_from_db()
+        self.batch.refresh_from_db()
+        self.assertEqual(self.medicine.brand_name, "New Name")
+        self.assertEqual(self.medicine.generic_name, "New Generic")
+        self.assertEqual(self.batch.batch_number, "NEW-BATCH")
+        self.assertEqual(self.batch.quantity, 12)
+        self.assertEqual(self.batch.selling_price, Decimal("3.50"))
+        self.assertEqual(self.batch.expiry_date.isoformat(), "2027-01-31")
+        self.assertEqual(self.batch.supplier_name, "Manual Wholesale Ltd")
+        self.assertEqual(response.data["data"]["wholesaleName"], "Manual Wholesale Ltd")
+
+    def test_post_manual_medicine_accepts_wholesale_name(self):
+        self.client.force_authenticate(user=self.user)
+        response = self.client.post(
+            reverse("retails-medicines"),
+            {
+                "tenantId": str(self.tenant.id),
+                "name": "Manual Medicine",
+                "quantity": 20,
+                "purchase_price": "5.00",
+                "selling_price": "7.50",
+                "wholesaleName": "Kigali Wholesale",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["data"]["wholesaleName"], "Kigali Wholesale")
+        self.assertEqual(response.data["data"]["supplier_name"], "Kigali Wholesale")
+
+    def test_patch_updates_stock_from_returned_retail_stocks_shape(self):
+        self.client.force_authenticate(user=self.user)
+        response = self.client.patch(
+            reverse("retails-medicine-detail", kwargs={"medicine_id": self.medicine.id}),
+            {
+                "tenantId": str(self.tenant.id),
+                "RetailStocks": [
+                    {
+                        "batch_number": "NESTED-BATCH",
+                        "quantity": 18,
+                        "selling_price": "4.25",
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.batch_number, "NESTED-BATCH")
+        self.assertEqual(self.batch.quantity, 18)
+        self.assertEqual(self.batch.selling_price, Decimal("4.25"))
+
+
 class SubscriptionAccessTestMixin:
     def create_user(self, email, name, department="WHOLESALE"):
         user = User.objects.create(email=email, name=name, department=department)
@@ -303,6 +420,86 @@ class SubscriptionAccessEndpointTests(TestCase, SubscriptionAccessTestMixin):
             ],
         )
 
+    def test_retail_report_can_filter_by_selected_date(self):
+        from .models import Expense, ExpenseCategory, Sale
+
+        cashier = self.create_user("retail-report-date@example.com", "Retail Date Reporter", department="RETAIL")
+        tenant = self.create_tenant("Retail Date Pharmacy")
+        UserTenant.objects.create(user=cashier, tenant=tenant, role="PHARMACIST")
+        self.attach_subscription(tenant, "growth")
+
+        selected_date = timezone.now().date()
+        older_date = selected_date - timezone.timedelta(days=2)
+        included_sale = Sale.objects.create(
+            tenant=tenant,
+            cashier=cashier,
+            invoice_number="RPT-DATE-001",
+            customer_name="Today Customer",
+            status="COMPLETED",
+            subtotal=Decimal("1000.00"),
+            total_amount=Decimal("1000.00"),
+            paid_amount=Decimal("1000.00"),
+        )
+        excluded_sale = Sale.objects.create(
+            tenant=tenant,
+            cashier=cashier,
+            invoice_number="RPT-DATE-002",
+            customer_name="Older Customer",
+            status="COMPLETED",
+            subtotal=Decimal("5000.00"),
+            total_amount=Decimal("5000.00"),
+            paid_amount=Decimal("5000.00"),
+        )
+        Sale.objects.filter(id=excluded_sale.id).update(
+            created_at=timezone.now() - timezone.timedelta(days=2)
+        )
+
+        category = ExpenseCategory.objects.create(tenant=tenant, name="Transport")
+        Expense.objects.create(
+            tenant=tenant,
+            category=category,
+            amount=Decimal("250.00"),
+            expense_date=selected_date,
+            created_by=cashier,
+        )
+        Expense.objects.create(
+            tenant=tenant,
+            category=category,
+            amount=Decimal("900.00"),
+            expense_date=older_date,
+            created_by=cashier,
+        )
+
+        self.client.force_authenticate(user=cashier)
+        response = self.client.get(
+            reverse("retails-reports"),
+            {"tenantId": str(tenant.id), "selectedDate": selected_date.isoformat()},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.data["data"]
+        self.assertEqual(data["summary"]["totalSales"], 1000.0)
+        self.assertEqual(data["summary"]["totalExpenses"], 250.0)
+        self.assertEqual(data["dateRange"]["start_date"], selected_date.isoformat())
+        self.assertEqual(data["dateRange"]["end_date"], selected_date.isoformat())
+        self.assertEqual(data["printReport"]["period"], f"For {selected_date.isoformat()} to {selected_date.isoformat()}")
+        self.assertEqual([sale["invoice_number"] for sale in data["sales"]], [included_sale.invoice_number])
+
+    def test_retail_report_rejects_invalid_selected_date(self):
+        cashier = self.create_user("retail-report-bad-date@example.com", "Retail Bad Date", department="RETAIL")
+        tenant = self.create_tenant("Retail Bad Date Pharmacy")
+        UserTenant.objects.create(user=cashier, tenant=tenant, role="PHARMACIST")
+        self.attach_subscription(tenant, "growth")
+
+        self.client.force_authenticate(user=cashier)
+        response = self.client.get(
+            reverse("retails-reports"),
+            {"tenantId": str(tenant.id), "selectedDate": "22-06-2026"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["message"], "start_date must be in YYYY-MM-DD format")
+
     def test_retail_report_download_returns_pdf(self):
         cashier = self.create_user("retail-report-pdf@example.com", "Retail PDF", department="RETAIL")
         tenant = self.create_tenant("Retail PDF Pharmacy")
@@ -310,7 +507,10 @@ class SubscriptionAccessEndpointTests(TestCase, SubscriptionAccessTestMixin):
         self.attach_subscription(tenant, "growth")
 
         self.client.force_authenticate(user=cashier)
-        response = self.client.get(reverse("retails-reports-download"), {"tenantId": str(tenant.id)})
+        response = self.client.get(
+            reverse("retails-reports-download"),
+            {"tenantId": str(tenant.id), "selectedDate": timezone.now().date().isoformat()},
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "application/pdf")

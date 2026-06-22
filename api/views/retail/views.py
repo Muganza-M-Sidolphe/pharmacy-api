@@ -28,6 +28,13 @@ from ...utils.subscription_access import check_subscription_access
 LOW_STOCK_THRESHOLD = 10
 
 
+def _first_present(data, *fields, default=None):
+    for field in fields:
+        if field in data:
+            return data.get(field)
+    return default
+
+
 class RetailBaseView(APIView):
     permission_classes = [IsAuthenticated]
     required_subscription_feature = None
@@ -94,6 +101,7 @@ def _medicine_payload(medicine):
         medicine.batches.aggregate(total=Coalesce(Sum("quantity"), 0)).get("total")
         or 0
     )
+    supplier_name = batch.supplier_name if batch else None
     return {
         "id": str(medicine.id),
         "name": medicine.brand_name,
@@ -117,6 +125,9 @@ def _medicine_payload(medicine):
                     "manufacture_date": batch.manufacture_date.isoformat() if batch.manufacture_date else None,
                     "expiry_date": batch.expiry_date.isoformat() if batch.expiry_date else None,
                     "supplier_name": batch.supplier_name,
+                    "supplierName": batch.supplier_name,
+                    "wholesale_name": batch.supplier_name,
+                    "wholesaleName": batch.supplier_name,
                     "supplier_phone": batch.supplier_phone,
                     "supplier_address": batch.supplier_address,
                 }
@@ -124,7 +135,10 @@ def _medicine_payload(medicine):
             if batch
             else []
         ),
-        "supplier_name": batch.supplier_name if batch else None,
+        "supplier_name": supplier_name,
+        "supplierName": supplier_name,
+        "wholesale_name": supplier_name,
+        "wholesaleName": supplier_name,
     }
 
 
@@ -254,9 +268,9 @@ class RetailMedicinesView(RetailBaseView):
             purchase_price=purchase_price,
             selling_price=selling_price,
             expiry_date=expiry_date or None,
-            supplier_name=request.data.get("supplier_name"),
-            supplier_phone=request.data.get("supplier_phone"),
-            supplier_address=request.data.get("supplier_address"),
+            supplier_name=_first_present(request.data, "supplier_name", "supplierName", "wholesale_name", "wholesaleName"),
+            supplier_phone=_first_present(request.data, "supplier_phone", "supplierPhone"),
+            supplier_address=_first_present(request.data, "supplier_address", "supplierAddress"),
         )
         return Response({"success": True, "data": _medicine_payload(medicine)}, status=201)
 
@@ -274,22 +288,72 @@ class RetailMedicinesView(RetailBaseView):
         if not medicine:
             return Response({"success": False, "message": "Medicine not found"}, status=404)
 
-        update_fields = [
-            "brand_name",
-            "generic_name",
-            "manufacturer",
-            "category",
-            "unit",
-            "description",
-        ]
-        changed = False
-        for field in update_fields:
-            if field in request.data:
-                setattr(medicine, field, request.data[field])
-                changed = True
+        medicine_field_aliases = {
+            "brand_name": ("brand_name", "brandName", "name"),
+            "generic_name": ("generic_name", "genericName"),
+            "manufacturer": ("manufacturer",),
+            "category": ("category",),
+            "unit": ("unit",),
+            "description": ("description",),
+        }
+        changed_medicine_fields = []
+        for model_field, request_fields in medicine_field_aliases.items():
+            for request_field in request_fields:
+                if request_field in request.data:
+                    setattr(medicine, model_field, request.data.get(request_field))
+                    changed_medicine_fields.append(model_field)
+                    break
 
-        if changed:
-            medicine.save(update_fields=[field for field in update_fields if field in request.data])
+        if changed_medicine_fields:
+            medicine.save(update_fields=changed_medicine_fields)
+
+        batch_field_aliases = {
+            "batch_number": ("batch_number", "batchNumber"),
+            "quantity": ("quantity",),
+            "purchase_price": ("purchase_price", "purchasePrice"),
+            "selling_price": ("selling_price", "sellingPrice"),
+            "manufacture_date": ("manufacture_date", "manufactureDate"),
+            "expiry_date": ("expiry_date", "expiryDate"),
+            "supplier_name": ("supplier_name", "supplierName", "wholesale_name", "wholesaleName"),
+            "supplier_phone": ("supplier_phone", "supplierPhone"),
+            "supplier_address": ("supplier_address", "supplierAddress"),
+        }
+        batch_payload = {}
+        nested_batches = request.data.get("RetailStocks") or request.data.get("retailStocks")
+        if isinstance(nested_batches, list) and nested_batches:
+            batch_payload = nested_batches[0] or {}
+        elif isinstance(nested_batches, dict):
+            batch_payload = nested_batches
+        elif isinstance(request.data.get("stock"), dict):
+            batch_payload = request.data.get("stock")
+
+        changed_batch_values = {}
+        for model_field, request_fields in batch_field_aliases.items():
+            for request_field in request_fields:
+                if request_field in batch_payload:
+                    value = batch_payload.get(request_field)
+                    changed_batch_values[model_field] = value or None if model_field.endswith("_date") else value
+                    break
+                if request_field in request.data:
+                    value = request.data.get(request_field)
+                    changed_batch_values[model_field] = value or None if model_field.endswith("_date") else value
+                    break
+
+        if changed_batch_values:
+            batches_qs = medicine.batches.all()
+            if is_collaborative_retail:
+                batches_qs = batches_qs.filter(created_by=request.user)
+            batch = batches_qs.order_by("-created_at").first()
+            if not batch:
+                return Response({"success": False, "message": "Stock batch not found"}, status=404)
+
+            for field, value in changed_batch_values.items():
+                if field in {"purchase_price", "selling_price"} and value not in (None, ""):
+                    value = Decimal(str(value))
+                elif field == "quantity" and value not in (None, ""):
+                    value = int(value)
+                setattr(batch, field, value)
+            batch.save(update_fields=list(changed_batch_values.keys()))
 
         return Response({"success": True, "data": _medicine_payload(medicine)})
 
@@ -356,9 +420,9 @@ class RetailStockView(RetailBaseView):
             purchase_price=purchase_price,
             selling_price=selling_price,
             expiry_date=expiry_date or None,
-            supplier_name=request.data.get("supplier_name"),
-            supplier_phone=request.data.get("supplier_phone"),
-            supplier_address=request.data.get("supplier_address"),
+            supplier_name=_first_present(request.data, "supplier_name", "supplierName", "wholesale_name", "wholesaleName"),
+            supplier_phone=_first_present(request.data, "supplier_phone", "supplierPhone"),
+            supplier_address=_first_present(request.data, "supplier_address", "supplierAddress"),
         )
         return Response({"success": True, "data": {"id": str(batch.id)}}, status=201)
 
@@ -788,14 +852,38 @@ class RetailDashboardView(RetailBaseView):
 class RetailReportsView(RetailBaseView):
     required_subscription_feature = "advanced_reports"
 
+    def _report_date_range(self, request):
+        selected_date = _first_present(request.query_params, "date", "selectedDate", "reportDate")
+        start_date = _first_present(request.query_params, "start_date", "startDate", "fromDate", "dateFrom")
+        end_date = _first_present(request.query_params, "end_date", "endDate", "toDate", "dateTo")
+
+        if selected_date and not start_date and not end_date:
+            start_date = selected_date
+            end_date = selected_date
+
+        parsed_start = parse_date(start_date) if start_date else None
+        parsed_end = parse_date(end_date) if end_date else None
+        if start_date and not parsed_start:
+            return None, None, "start_date must be in YYYY-MM-DD format"
+        if end_date and not parsed_end:
+            return None, None, "end_date must be in YYYY-MM-DD format"
+        if parsed_start and parsed_end and parsed_start > parsed_end:
+            return None, None, "start_date cannot be after end_date"
+
+        return parsed_start, parsed_end, None
+
     def get(self, request):
         tenant = self._get_tenant(request)
         if not tenant:
             return Response({"success": False, "message": "No tenant context"}, status=403)
         is_collaborative_retail = self._is_collaborative_retail(request, tenant=tenant)
 
-        start_date = request.query_params.get("start_date") or request.query_params.get("startDate")
-        end_date = request.query_params.get("end_date") or request.query_params.get("endDate")
+        start_date, end_date, date_error = self._report_date_range(request)
+        if date_error:
+            return Response({"success": False, "message": date_error}, status=400)
+        start_date_label = start_date.isoformat() if start_date else None
+        end_date_label = end_date.isoformat() if end_date else None
+
         sales_qs = Sale.objects.filter(tenant=tenant)
         expenses_qs = Expense.objects.filter(tenant=tenant)
         if is_collaborative_retail:
@@ -985,11 +1073,16 @@ class RetailReportsView(RetailBaseView):
                 "inventoryValue": float(inventory_value),
                 "expiredStockLoss": float(expired_stock_loss),
             },
-            "dateRange": {"start_date": start_date, "end_date": end_date},
+            "dateRange": {
+                "start_date": start_date_label,
+                "end_date": end_date_label,
+                "startDate": start_date_label,
+                "endDate": end_date_label,
+            },
             "isCollaborativeRetail": is_collaborative_retail,
             "printReport": {
                 "title": "Financial Performance Report",
-                "period": report_period(start_date, end_date),
+                "period": report_period(start_date_label, end_date_label),
                 "reportNumber": f"FR-{timezone.now().strftime('%Y%m%d-%H%M%S')}",
                 "generatedAt": timezone.now().isoformat(),
                 "generatedBy": request.user.name or request.user.email,
