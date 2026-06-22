@@ -1,8 +1,9 @@
 from datetime import timedelta
 from decimal import Decimal
 
-from django.db.models import Count, Prefetch, Q, Sum, Value
+from django.db.models import Count, DecimalField, ExpressionWrapper, F, Prefetch, Q, Sum, Value
 from django.db.models.functions import Coalesce, TruncDate
+from django.utils.dateparse import parse_date
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -10,6 +11,15 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ...models import Expense, ExpenseCategory, Medicine, Sale, SaleItem, StockBatch, UserTenant
+from ...utils.reporting import (
+    MONEY_ZERO,
+    display_label,
+    money,
+    percent,
+    report_branding,
+    report_period,
+    report_theme,
+)
 from ...utils.subscription_access import check_subscription_access
 
 
@@ -161,6 +171,17 @@ def _sale_payload(sale):
         "final_amount": float(final_amount),
         "createdAt": sale.created_at.isoformat(),
         "SaleItems": items,
+    }
+
+
+def _expense_payload(expense):
+    return {
+        "id": str(expense.id),
+        "description": expense.description,
+        "category": expense.category.name if expense.category else None,
+        "amount": float(expense.amount),
+        "expense_date": expense.expense_date.isoformat() if expense.expense_date else None,
+        "createdAt": expense.created_at.isoformat(),
     }
 
 
@@ -424,12 +445,10 @@ class RetailSalesView(RetailBaseView):
                 sale.delete()
                 return Response({"success": False, "message": "Invalid items payload"}, status=400)
 
-            batch = (
-                StockBatch.objects.filter(medicine_id=medicine_id, medicine__tenant=tenant, quantity__gt=0)
-                .filter(created_by=request.user if is_collaborative_retail else Q())
-                .order_by("expiry_date", "created_at")
-                .first()
-            )
+            batch_qs = StockBatch.objects.filter(medicine_id=medicine_id, medicine__tenant=tenant, quantity__gt=0)
+            if is_collaborative_retail:
+                batch_qs = batch_qs.filter(created_by=request.user)
+            batch = batch_qs.order_by("expiry_date", "created_at").first()
             if not batch or batch.quantity < quantity:
                 sale.delete()
                 return Response({"success": False, "message": "Insufficient stock for one or more items"}, status=400)
@@ -479,17 +498,7 @@ class RetailExpensesView(RetailBaseView):
         if self._is_collaborative_retail(request, tenant=tenant):
             expenses = expenses.filter(created_by=request.user)
         expenses = expenses.select_related("category").order_by("-expense_date")
-        data = [
-            {
-                "id": str(e.id),
-                "description": e.description,
-                "category": e.category.name if e.category else None,
-                "amount": float(e.amount),
-                "expense_date": e.expense_date.isoformat(),
-                "createdAt": e.created_at.isoformat(),
-            }
-            for e in expenses
-        ]
+        data = [_expense_payload(e) for e in expenses]
         total = expenses.aggregate(total=Coalesce(Sum("amount"), Decimal("0.00"))).get("total") or Decimal("0.00")
         return Response(
             {
@@ -504,26 +513,31 @@ class RetailExpensesView(RetailBaseView):
         if not tenant:
             return Response({"success": False, "message": "No tenant context"}, status=403)
 
+        raw_amount = request.data.get("amount", 0)
+        try:
+            amount = Decimal(str(raw_amount))
+        except Exception:
+            return Response({"success": False, "message": "amount must be a valid number"}, status=400)
+
+        raw_expense_date = request.data.get("expense_date") or request.data.get("expenseDate")
+        expense_date = parse_date(str(raw_expense_date)) if raw_expense_date else timezone.now().date()
+        if raw_expense_date and not expense_date:
+            return Response({"success": False, "message": "expense_date must be in YYYY-MM-DD format"}, status=400)
+
         category_name = request.data.get("category") or "other"
         category, _ = ExpenseCategory.objects.get_or_create(tenant=tenant, name=category_name)
         expense = Expense.objects.create(
             tenant=tenant,
             category=category,
-            amount=Decimal(str(request.data.get("amount", 0))),
+            amount=amount,
             description=request.data.get("description"),
-            expense_date=request.data.get("expense_date"),
+            expense_date=expense_date,
             created_by=request.user,
         )
         return Response(
             {
                 "success": True,
-                "data": {
-                    "id": str(expense.id),
-                    "description": expense.description,
-                    "category": category.name,
-                    "amount": float(expense.amount),
-                    "expense_date": expense.expense_date.isoformat(),
-                },
+                "data": _expense_payload(expense),
             },
             status=201,
         )
@@ -649,7 +663,17 @@ class RetailDashboardView(RetailBaseView):
             medicines_qs = medicines_qs.filter(created_by=request.user)
 
         stock_value = (
-            stock_batches_qs.aggregate(total=Coalesce(Sum("purchase_price"), Decimal("0.00"))).get("total")
+            stock_batches_qs.aggregate(
+                total=Coalesce(
+                    Sum(
+                        ExpressionWrapper(
+                            F("purchase_price") * F("quantity"),
+                            output_field=DecimalField(max_digits=14, decimal_places=2),
+                        )
+                    ),
+                    Decimal("0.00"),
+                )
+            ).get("total")
             or Decimal("0.00")
         )
 
@@ -768,8 +792,8 @@ class RetailReportsView(RetailBaseView):
             return Response({"success": False, "message": "No tenant context"}, status=403)
         is_collaborative_retail = self._is_collaborative_retail(request, tenant=tenant)
 
-        start_date = request.query_params.get("start_date")
-        end_date = request.query_params.get("end_date")
+        start_date = request.query_params.get("start_date") or request.query_params.get("startDate")
+        end_date = request.query_params.get("end_date") or request.query_params.get("endDate")
         sales_qs = Sale.objects.filter(tenant=tenant)
         expenses_qs = Expense.objects.filter(tenant=tenant)
         if is_collaborative_retail:
@@ -787,6 +811,10 @@ class RetailReportsView(RetailBaseView):
 
         total_sales = sales_qs.aggregate(total=Coalesce(Sum("total_amount"), Decimal("0.00"))).get("total") or Decimal("0.00")
         total_expenses = expenses_qs.aggregate(total=Coalesce(Sum("amount"), Decimal("0.00"))).get("total") or Decimal("0.00")
+        total_paid = sales_qs.aggregate(total=Coalesce(Sum("paid_amount"), Decimal("0.00"))).get("total") or Decimal("0.00")
+        total_due = sales_qs.aggregate(total=Coalesce(Sum("due_amount"), Decimal("0.00"))).get("total") or Decimal("0.00")
+        total_discounts = sales_qs.aggregate(total=Coalesce(Sum("discount_amount"), Decimal("0.00"))).get("total") or Decimal("0.00")
+        transactions = sales_qs.count()
 
         stock_qs = StockBatch.objects.filter(medicine__tenant=tenant, quantity__gt=0)
         if is_collaborative_retail:
@@ -794,6 +822,115 @@ class RetailReportsView(RetailBaseView):
         stock_qs = stock_qs.select_related("medicine")
         expiring_qs = stock_qs.filter(expiry_date__isnull=False, expiry_date__lte=timezone.now().date() + timedelta(days=30))
         expired_qs = stock_qs.filter(expiry_date__isnull=False, expiry_date__lt=timezone.now().date())
+
+        sale_items_qs = SaleItem.objects.filter(sale__in=sales_qs).select_related("medicine", "batch")
+        cost_of_goods = (
+            sale_items_qs.aggregate(
+                total=Coalesce(
+                    Sum(
+                        ExpressionWrapper(
+                            F("batch__purchase_price") * F("quantity"),
+                            output_field=DecimalField(max_digits=14, decimal_places=2),
+                        )
+                    ),
+                    Decimal("0.00"),
+                )
+            ).get("total")
+            or Decimal("0.00")
+        )
+        gross_profit = total_sales - cost_of_goods
+        net_profit = total_sales - total_expenses
+        profit_margin = ((net_profit / total_sales) * 100) if total_sales else Decimal("0.00")
+        inventory_value = (
+            stock_qs.aggregate(
+                total=Coalesce(
+                    Sum(
+                        ExpressionWrapper(
+                            F("purchase_price") * F("quantity"),
+                            output_field=DecimalField(max_digits=14, decimal_places=2),
+                        )
+                    ),
+                    Decimal("0.00"),
+                )
+            ).get("total")
+            or Decimal("0.00")
+        )
+        expired_stock_loss = (
+            expired_qs.aggregate(
+                total=Coalesce(
+                    Sum(
+                        ExpressionWrapper(
+                            F("purchase_price") * F("quantity"),
+                            output_field=DecimalField(max_digits=14, decimal_places=2),
+                        )
+                    ),
+                    Decimal("0.00"),
+                )
+            ).get("total")
+            or Decimal("0.00")
+        )
+
+        revenue_rows = []
+        for row in (
+            sale_items_qs.values("medicine__category")
+            .annotate(amount=Coalesce(Sum("subtotal"), Decimal("0.00")))
+            .order_by("-amount")
+        ):
+            amount = row["amount"] or Decimal("0.00")
+            revenue_rows.append(
+                {
+                    "category": display_label(row["medicine__category"]),
+                    "revenue": money(amount),
+                    "percentage": percent((amount / total_sales * 100) if total_sales else Decimal("0.00")),
+                }
+            )
+        revenue_rows.append({"category": "Total Revenue", "revenue": money(total_sales), "percentage": 100.0 if total_sales else 0.0})
+
+        expense_rows = []
+        for row in (
+            expenses_qs.values("category__name")
+            .annotate(amount=Coalesce(Sum("amount"), Decimal("0.00")))
+            .order_by("-amount")
+        ):
+            amount = row["amount"] or Decimal("0.00")
+            expense_rows.append(
+                {
+                    "type": display_label(row["category__name"], "Other Expenses"),
+                    "amount": money(amount),
+                    "percentage": percent((amount / total_expenses * 100) if total_expenses else Decimal("0.00")),
+                }
+            )
+        if cost_of_goods:
+            expense_rows.insert(
+                0,
+                {
+                    "type": "Inventory Purchases (COGS)",
+                    "amount": money(cost_of_goods),
+                    "percentage": percent((cost_of_goods / total_sales * 100) if total_sales else Decimal("0.00")),
+                },
+            )
+        expense_rows.append({"type": "Total Expenses", "amount": money(total_expenses), "percentage": 100.0 if total_expenses else 0.0})
+
+        top_medicines_rows = []
+        for row in (
+            sale_items_qs.values("medicine__brand_name")
+            .annotate(qty_sold=Coalesce(Sum("quantity"), 0), revenue=Coalesce(Sum("subtotal"), Decimal("0.00")))
+            .order_by("-revenue")[:10]
+        ):
+            top_medicines_rows.append(
+                {
+                    "medicine": row["medicine__brand_name"] or "Unknown Medicine",
+                    "qtySold": int(row["qty_sold"] or 0),
+                    "revenue": money(row["revenue"] or Decimal("0.00")),
+                }
+            )
+
+        stock_loss_rows = [
+            {"reason": "Expired Medicines", "value": money(expired_stock_loss), "count": expired_qs.count()},
+            {"reason": "Damaged Stock", "value": money(MONEY_ZERO), "count": 0},
+            {"reason": "Missing Stock", "value": money(MONEY_ZERO), "count": 0},
+        ]
+        total_stock_loss = expired_stock_loss
 
         sales_data = [_sale_payload(s) for s in sales_qs.order_by("-created_at")]
         expenses_data = [
@@ -834,10 +971,73 @@ class RetailReportsView(RetailBaseView):
             "expiringStocks": [_stock_payload(s) for s in expiring_qs],
             "summary": {
                 "totalSales": float(total_sales),
+                "totalPaid": float(total_paid),
+                "totalDue": float(total_due),
+                "totalDiscounts": float(total_discounts),
                 "totalExpenses": float(total_expenses),
-                "netProfit": float(total_sales - total_expenses),
+                "costOfGoods": float(cost_of_goods),
+                "grossProfit": float(gross_profit),
+                "netProfit": float(net_profit),
+                "profitMargin": percent(profit_margin),
+                "transactions": transactions,
+                "inventoryValue": float(inventory_value),
+                "expiredStockLoss": float(expired_stock_loss),
             },
             "dateRange": {"start_date": start_date, "end_date": end_date},
             "isCollaborativeRetail": is_collaborative_retail,
+            "printReport": {
+                "title": "Financial Performance Report",
+                "period": report_period(start_date, end_date),
+                "reportNumber": f"FR-{timezone.now().strftime('%Y%m%d-%H%M%S')}",
+                "generatedAt": timezone.now().isoformat(),
+                "generatedBy": request.user.name or request.user.email,
+                "page": {"current": 1, "total": 1},
+                "branding": report_branding(tenant),
+                "theme": report_theme(),
+                "summary": {
+                    "totalRevenue": money(total_sales),
+                    "totalExpenses": money(total_expenses),
+                    "grossProfit": money(gross_profit),
+                    "netProfit": money(net_profit),
+                    "profitMargin": percent(profit_margin),
+                    "transactions": transactions,
+                    "inventoryValue": money(inventory_value),
+                    "expiredStockLoss": money(expired_stock_loss),
+                    "currency": tenant.currency,
+                },
+                "sections": [
+                    {
+                        "title": "Revenue Breakdown (by Category)",
+                        "columns": ["Category", f"Revenue ({tenant.currency})", "% of Revenue"],
+                        "rows": revenue_rows,
+                    },
+                    {
+                        "title": "Expense Breakdown (by Type)",
+                        "columns": ["Expense Type", f"Amount ({tenant.currency})", "% of Expenses"],
+                        "rows": expense_rows,
+                    },
+                    {
+                        "title": "Profit Analysis",
+                        "columns": ["Description", f"Amount ({tenant.currency})"],
+                        "rows": [
+                            {"description": "Total Revenue", "amount": money(total_sales)},
+                            {"description": "Cost of Goods Sold (Inventory Purchases)", "amount": money(cost_of_goods)},
+                            {"description": "Gross Profit", "amount": money(gross_profit)},
+                            {"description": "Operating Expenses", "amount": money(total_expenses)},
+                            {"description": "Net Profit", "amount": money(net_profit)},
+                        ],
+                    },
+                    {
+                        "title": "Top Selling Medicines",
+                        "columns": ["Medicine", "Qty Sold", f"Revenue ({tenant.currency})"],
+                        "rows": top_medicines_rows,
+                    },
+                    {
+                        "title": "Stock Loss Report",
+                        "columns": ["Reason", f"Value ({tenant.currency})", "Count"],
+                        "rows": stock_loss_rows + [{"reason": "Total Loss", "value": money(total_stock_loss), "count": expired_qs.count()}],
+                    },
+                ],
+            },
         }
         return Response({"success": True, "data": data, "currency": tenant.currency})

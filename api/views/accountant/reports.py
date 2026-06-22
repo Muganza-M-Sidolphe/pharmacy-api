@@ -1,14 +1,16 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
+from django.db.models import DecimalField, ExpressionWrapper, F, Sum
+from django.db.models.functions import Coalesce
 from django.http import HttpResponse
 from datetime import datetime
 from decimal import Decimal
 import csv
 
-from ...models import UserTenant, Sale, Medicine, StockBatch, Expense
+from ...models import Sale, Medicine, StockBatch, Expense, SaleItem
 from ...serializers import FinancialReportSerializer, InventoryReportSerializer, SalesReportSerializer
+from ...utils.reporting import display_label, money, percent, report_branding, report_period, report_theme
 from ...utils.subscription_access import authorize_tenant_access
 from drf_spectacular.utils import extend_schema
 
@@ -44,7 +46,7 @@ class AccountantFinancialReportView(AccountantReportsBaseView):
         tags=["accountant"]
     )
     def get(self, request):
-        _, tenant_id, auth_error = self._authorize(request)
+        tenant, tenant_id, auth_error = self._authorize(request)
         if auth_error:
             return auth_error
 
@@ -76,6 +78,103 @@ class AccountantFinancialReportView(AccountantReportsBaseView):
         profit_margin = float((net_profit / total_revenue * 100) if total_revenue else 0.0)
         transactions = sales_qs.count()
 
+        sale_items_qs = SaleItem.objects.filter(sale__in=sales_qs).select_related("medicine", "batch")
+        cost_of_goods = (
+            sale_items_qs.aggregate(
+                total=Coalesce(
+                    Sum(
+                        ExpressionWrapper(
+                            F("batch__purchase_price") * F("quantity"),
+                            output_field=DecimalField(max_digits=14, decimal_places=2),
+                        )
+                    ),
+                    Decimal("0.00"),
+                )
+            ).get("total")
+            or Decimal("0.00")
+        )
+        gross_profit = total_revenue - cost_of_goods
+        inventory_value = (
+            StockBatch.objects.filter(medicine__tenant_id=tenant_id, quantity__gt=0).aggregate(
+                total=Coalesce(
+                    Sum(
+                        ExpressionWrapper(
+                            F("purchase_price") * F("quantity"),
+                            output_field=DecimalField(max_digits=14, decimal_places=2),
+                        )
+                    ),
+                    Decimal("0.00"),
+                )
+            ).get("total")
+            or Decimal("0.00")
+        )
+        expired_qs = StockBatch.objects.filter(
+            medicine__tenant_id=tenant_id,
+            quantity__gt=0,
+            expiry_date__isnull=False,
+            expiry_date__lt=datetime.now().date(),
+        )
+        expired_stock_loss = (
+            expired_qs.aggregate(
+                total=Coalesce(
+                    Sum(
+                        ExpressionWrapper(
+                            F("purchase_price") * F("quantity"),
+                            output_field=DecimalField(max_digits=14, decimal_places=2),
+                        )
+                    ),
+                    Decimal("0.00"),
+                )
+            ).get("total")
+            or Decimal("0.00")
+        )
+
+        revenue_rows = []
+        for row in (
+            sale_items_qs.values("medicine__category")
+            .annotate(amount=Coalesce(Sum("subtotal"), Decimal("0.00")))
+            .order_by("-amount")
+        ):
+            amount = row["amount"] or Decimal("0.00")
+            revenue_rows.append({
+                "category": display_label(row["medicine__category"]),
+                "revenue": money(amount),
+                "percentage": percent((amount / total_revenue * 100) if total_revenue else Decimal("0.00")),
+            })
+        revenue_rows.append({"category": "Total Revenue", "revenue": money(total_revenue), "percentage": 100.0 if total_revenue else 0.0})
+
+        expense_rows = []
+        for row in (
+            expenses_qs.values("category__name")
+            .annotate(amount=Coalesce(Sum("amount"), Decimal("0.00")))
+            .order_by("-amount")
+        ):
+            amount = row["amount"] or Decimal("0.00")
+            expense_rows.append({
+                "type": display_label(row["category__name"], "Other Expenses"),
+                "amount": money(amount),
+                "percentage": percent((amount / total_expenses * 100) if total_expenses else Decimal("0.00")),
+            })
+        if cost_of_goods:
+            expense_rows.insert(0, {
+                "type": "Inventory Purchases (COGS)",
+                "amount": money(cost_of_goods),
+                "percentage": percent((cost_of_goods / total_revenue * 100) if total_revenue else Decimal("0.00")),
+            })
+        expense_rows.append({"type": "Total Expenses", "amount": money(total_expenses), "percentage": 100.0 if total_expenses else 0.0})
+
+        top_medicines_rows = []
+        for row in (
+            sale_items_qs.values("medicine__brand_name")
+            .annotate(qty_sold=Coalesce(Sum("quantity"), 0), revenue=Coalesce(Sum("subtotal"), Decimal("0.00")))
+            .order_by("-revenue")[:10]
+        ):
+            top_medicines_rows.append({
+                "medicine": row["medicine__brand_name"] or "Unknown Medicine",
+                "qtySold": int(row["qty_sold"] or 0),
+                "revenue": money(row["revenue"] or Decimal("0.00")),
+            })
+
         breakdown = [
             {"metric": "Total Revenue", "amount": str(total_revenue), "percentageOfRevenue": 100.0},
             {"metric": "Total Discounts", "amount": str(-total_discounts), "percentageOfRevenue": float((-total_discounts / total_revenue * 100) if total_revenue else 0.0)},
@@ -88,7 +187,66 @@ class AccountantFinancialReportView(AccountantReportsBaseView):
             'netProfit': str(net_profit),
             'profitMargin': round(profit_margin, 2),
             'transactions': transactions,
-            'breakdown': breakdown
+            'breakdown': breakdown,
+            'printReport': {
+                "title": "Financial Performance Report",
+                "period": report_period(start_date, end_date),
+                "reportNumber": f"FR-{datetime.now().strftime('%Y%m%d-%H%M%S')}",
+                "generatedAt": datetime.now().isoformat(),
+                "generatedBy": request.user.name or request.user.email,
+                "page": {"current": 1, "total": 1},
+                "branding": report_branding(tenant),
+                "theme": report_theme(),
+                "summary": {
+                    "totalRevenue": money(total_revenue),
+                    "totalExpenses": money(total_expenses),
+                    "grossProfit": money(gross_profit),
+                    "netProfit": money(net_profit),
+                    "profitMargin": round(profit_margin, 2),
+                    "transactions": transactions,
+                    "inventoryValue": money(inventory_value),
+                    "expiredStockLoss": money(expired_stock_loss),
+                    "currency": tenant.currency,
+                },
+                "sections": [
+                    {
+                        "title": "Revenue Breakdown (by Category)",
+                        "columns": ["Category", f"Revenue ({tenant.currency})", "% of Revenue"],
+                        "rows": revenue_rows,
+                    },
+                    {
+                        "title": "Expense Breakdown (by Type)",
+                        "columns": ["Expense Type", f"Amount ({tenant.currency})", "% of Expenses"],
+                        "rows": expense_rows,
+                    },
+                    {
+                        "title": "Profit Analysis",
+                        "columns": ["Description", f"Amount ({tenant.currency})"],
+                        "rows": [
+                            {"description": "Total Revenue", "amount": money(total_revenue)},
+                            {"description": "Cost of Goods Sold (Inventory Purchases)", "amount": money(cost_of_goods)},
+                            {"description": "Gross Profit", "amount": money(gross_profit)},
+                            {"description": "Operating Expenses", "amount": money(total_expenses)},
+                            {"description": "Net Profit", "amount": money(net_profit)},
+                        ],
+                    },
+                    {
+                        "title": "Top Selling Medicines",
+                        "columns": ["Medicine", "Qty Sold", f"Revenue ({tenant.currency})"],
+                        "rows": top_medicines_rows,
+                    },
+                    {
+                        "title": "Stock Loss Report",
+                        "columns": ["Reason", f"Value ({tenant.currency})", "Count"],
+                        "rows": [
+                            {"reason": "Expired Medicines", "value": money(expired_stock_loss), "count": expired_qs.count()},
+                            {"reason": "Damaged Stock", "value": money(Decimal("0.00")), "count": 0},
+                            {"reason": "Missing Stock", "value": money(Decimal("0.00")), "count": 0},
+                            {"reason": "Total Loss", "value": money(expired_stock_loss), "count": expired_qs.count()},
+                        ],
+                    },
+                ],
+            },
         })
 
 
