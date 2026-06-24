@@ -8,6 +8,7 @@ from django.utils.dateparse import parse_date
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.renderers import BaseRenderer, JSONRenderer
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -26,6 +27,19 @@ from ...utils.subscription_access import check_subscription_access
 
 
 LOW_STOCK_THRESHOLD = 10
+
+
+class PDFRenderer(BaseRenderer):
+    media_type = "application/pdf"
+    format = "pdf"
+    charset = None
+
+    def render(self, data, accepted_media_type=None, renderer_context=None):
+        if data is None:
+            return b""
+        if isinstance(data, bytes):
+            return data
+        return JSONRenderer().render(data, accepted_media_type, renderer_context)
 
 
 def _first_present(data, *fields, default=None):
@@ -1140,6 +1154,7 @@ class RetailReportsView(RetailBaseView):
 
 class RetailReportsDownloadView(RetailReportsView):
     required_subscription_feature = "advanced_reports"
+    renderer_classes = [PDFRenderer, JSONRenderer]
 
     def get(self, request):
         report_response = super().get(request)
