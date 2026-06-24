@@ -517,6 +517,27 @@ class SubscriptionAccessEndpointTests(TestCase, SubscriptionAccessTestMixin):
         self.assertIn("attachment;", response["Content-Disposition"])
         self.assertTrue(response.content.startswith(b"%PDF-"))
 
+    def test_retail_report_download_accepts_pdf_format_query_param(self):
+        cashier = self.create_user("retail-report-format-pdf@example.com", "Retail Format PDF", department="RETAIL")
+        tenant = self.create_tenant("Retail Format PDF Pharmacy")
+        UserTenant.objects.create(user=cashier, tenant=tenant, role="PHARMACIST")
+        self.attach_subscription(tenant, "growth")
+
+        self.client.force_authenticate(user=cashier)
+        response = self.client.get(
+            reverse("retails-reports-download"),
+            {
+                "tenantId": str(tenant.id),
+                "format": "pdf",
+                "start_date": "2026-06-16",
+                "end_date": "2026-06-23",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertTrue(response.content.startswith(b"%PDF-"))
+
     def test_accountant_financial_report_includes_print_report_sections(self):
         from .models import Expense, ExpenseCategory, Medicine, Sale, SaleItem, StockBatch
 
