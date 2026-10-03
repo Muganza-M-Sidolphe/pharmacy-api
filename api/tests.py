@@ -641,3 +641,66 @@ class SubscriptionLimitTests(TestCase, SubscriptionAccessTestMixin):
 
         self.assertEqual(response.status_code, 403)
         self.assertIn("only 5 users", response.data["error"])
+
+@override_settings(SECURE_SSL_REDIRECT=False, DEMO_ROLE_SWITCH_EMAILS={"demo@example.com"})
+class DemoRoleSwitchTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.tenant = Tenant.objects.create(name="DemoPharm", email="demo@pharm.com", phone="123", address="x", license_number="L-DEMO")
+        self.owner = User.objects.create(email="owner@example.com", name="Owner", password="pass")
+        UserTenant.objects.create(user=self.owner, tenant=self.tenant, role="OWNER")
+        self.demo = User.objects.create(email="demo@example.com", name="Demo", password="pass")
+        UserTenant.objects.create(user=self.demo, tenant=self.tenant, role="OWNER")
+
+    def _switch(self, role, user=None):
+        self.client.force_authenticate(user=user or self.demo)
+        return self.client.post(reverse("switch-role"), {"tenantId": str(self.tenant.id), "role": role}, format="json")
+
+    def test_demo_user_lists_roles(self):
+        self.client.force_authenticate(user=self.demo)
+        res = self.client.get(reverse("demo-roles") + f"?tenantId={self.tenant.id}")
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.data["canSwitchRole"])
+        self.assertEqual(res.data["currentRole"], "OWNER")
+        self.assertIn("RETAIL", res.data["roles"])
+
+    def test_switch_to_cashier_updates_membership_and_token(self):
+        res = self._switch("cashier")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["data"]["role"], "CASHIER")
+        self.assertIn("access", res.data["data"]["token"])
+        self.assertEqual(UserTenant.objects.get(user=self.demo, tenant=self.tenant).role, "CASHIER")
+        self.assertEqual(res.data["data"]["tenant"]["businessType"], "WHOLESALE")
+
+    def test_switch_to_retail_sets_retail_department(self):
+        res = self._switch("RETAIL")
+        self.assertEqual(res.status_code, 200)
+        self.demo.refresh_from_db()
+        self.assertEqual(self.demo.department, "RETAIL")
+        self.assertTrue(res.data["data"]["isCollaborativeRetail"])
+        self.assertEqual(res.data["data"]["demoRole"], "RETAIL")
+
+        res = self._switch("ACCOUNTANT")
+        self.demo.refresh_from_db()
+        self.assertEqual(self.demo.department, "WHOLESALE")
+        self.assertEqual(res.data["data"]["role"], "ACCOUNTANT")
+
+    def test_switch_back_to_owner(self):
+        self._switch("PHARMACIST")
+        res = self._switch("OWNER")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(UserTenant.objects.get(user=self.demo, tenant=self.tenant).role, "OWNER")
+
+    def test_non_demo_user_cannot_switch(self):
+        res = self._switch("CASHIER", user=self.owner)
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(UserTenant.objects.get(user=self.owner, tenant=self.tenant).role, "OWNER")
+
+    def test_invalid_role_rejected(self):
+        self.assertEqual(self._switch("SUPER_ADMIN").status_code, 400)
+
+    def test_cannot_leave_pharmacy_without_owner(self):
+        UserTenant.objects.filter(user=self.owner).delete()
+        res = self._switch("CASHIER")
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(UserTenant.objects.get(user=self.demo, tenant=self.tenant).role, "OWNER")

@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.contrib.auth import authenticate
 from ...models import UserTenant, TenantSubscription, SubscriptionPlan
+from ...utils.demo import is_demo_user
 from ...utils.jwt import generate_token
 
 
@@ -127,6 +128,7 @@ class LoginView(APIView):
                     "role": ut.role,
                     "department": user.department,
                     "isCollaborativeRetail": _is_collaborative_retail(user, ut.tenant, business_type=business_type),
+                    "canSwitchRole": is_demo_user(user),
                 }
             })
 
