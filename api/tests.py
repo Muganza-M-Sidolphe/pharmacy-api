@@ -679,6 +679,7 @@ class DemoRoleSwitchTests(TestCase):
         self.assertEqual(self.demo.department, "RETAIL")
         self.assertTrue(res.data["data"]["isCollaborativeRetail"])
         self.assertEqual(res.data["data"]["demoRole"], "RETAIL")
+        self.assertEqual(res.data["data"]["role"], "PHARMACIST")
 
         res = self._switch("ACCOUNTANT")
         self.demo.refresh_from_db()

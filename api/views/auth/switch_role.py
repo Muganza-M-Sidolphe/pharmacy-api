@@ -11,9 +11,10 @@ from .login import _is_collaborative_retail, _tenant_business_type, _tenant_phar
 
 
 # Roles a demo account can switch between. RETAIL is not a tenant role: it acts as
-# a CASHIER in the RETAIL department (collaborative retail inside a wholesale tenant).
-DEMO_ROLES = ["OWNER", "ADMIN", "CASHIER", "STORE_KEEPER", "ACCOUNTANT", "PHARMACIST", "RETAIL"]
-RETAIL_MODE_ROLE = "CASHIER"
+# a PHARMACIST in the RETAIL department (collaborative retail inside a wholesale tenant),
+# which is what the frontend routes to the retail dashboard.
+DEMO_ROLES = ["OWNER", "CASHIER", "STORE_KEEPER", "ACCOUNTANT", "PHARMACIST", "RETAIL"]
+RETAIL_MODE_ROLE = "PHARMACIST"
 
 
 def _current_demo_role(user, membership):
