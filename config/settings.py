@@ -207,10 +207,6 @@ EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "no-reply@pharmacy.local")
 FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:5173")
-
-# Subscription features whose plan/business-type gate is temporarily disabled (testing).
-# Set to an empty value in .env to re-enable plan limits for every feature.
-SUBSCRIPTION_UNGATED_FEATURES = set(_env_list("SUBSCRIPTION_UNGATED_FEATURES", ["collaborative_retail_orders"]))
 FIREBASE_ENABLED = _env_bool("FIREBASE_ENABLED", False)
 FIREBASE_SERVICE_ACCOUNT_PATH = os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH", "")
 
