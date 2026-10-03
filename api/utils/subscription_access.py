@@ -1,6 +1,7 @@
 from datetime import timedelta
 import uuid
 
+from django.conf import settings
 from django.utils import timezone
 
 from ..models import SubscriptionPlan, Tenant, TenantSubscription, UserTenant
@@ -65,6 +66,9 @@ def check_subscription_access(tenant, required_feature=None, allowed_business_ty
 
     if subscription.status == "ACTIVE" and subscription.subscription_end_date and subscription.subscription_end_date < today:
         return False, "Subscription has expired."
+
+    if required_feature and required_feature in settings.SUBSCRIPTION_UNGATED_FEATURES:
+        return True, context
 
     business_type = context["business_type"]
     if allowed_business_types and business_type not in allowed_business_types and business_type != "BOTH":
