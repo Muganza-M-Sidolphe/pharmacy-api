@@ -1,6 +1,7 @@
 from .auth.login import LoginView
 from .auth.logout import LogoutView
 from .auth.select_tenant import SelectTenantView
+from .auth.switch_role import DemoRolesView, SwitchRoleView
 from .auth.change_password import ChangePasswordView
 from .auth.forgot_password import ForgotPasswordView, ResetPasswordView
 from .owner.users import CreateUserView, OwnerUserListView, OwnerUpdateUserView, OwnerUserStatusView, OwnerResetUserPasswordView, UsersSummaryView, SearchUsersView, RolesListView, OwnerUsersDashboardView

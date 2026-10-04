@@ -207,6 +207,9 @@ EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "no-reply@pharmacy.local")
 FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:5173")
+
+# Demo accounts allowed to switch between all roles (comma-separated emails).
+DEMO_ROLE_SWITCH_EMAILS = {email.lower() for email in _env_list("DEMO_ROLE_SWITCH_EMAILS")}
 FIREBASE_ENABLED = _env_bool("FIREBASE_ENABLED", False)
 FIREBASE_SERVICE_ACCOUNT_PATH = os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH", "")
 
