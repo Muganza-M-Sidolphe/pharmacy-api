@@ -6,11 +6,33 @@ from rest_framework import status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
-from ...models import Medicine, MedicineImportRecord, MedicineImportSession, StockBatch
+from ...models import ImportColumnMapping, Medicine, MedicineImportRecord, MedicineImportSession, StockBatch
 from ...utils import medicine_import as importer
 from .stock_batches import StockPermissionView, record_movement, visible_medicines
 
 CAPABILITIES = {"edit_records": True, "remove_records": True}
+
+
+def _detect(tenant, columns, rows):
+    learned = dict(
+        ImportColumnMapping.objects.filter(tenant=tenant).values_list("header_key", "target_field")
+    )
+    return importer.detect_columns(columns, rows[:200], learned)
+
+
+def _remember_mapping(session):
+    """Save the confirmed column choices so this pharmacy's next file maps itself."""
+    for column, field in session.mapping.items():
+        key = importer.normalize_header(column)
+        if not key:
+            continue
+        mapping, created = ImportColumnMapping.objects.get_or_create(
+            tenant_id=session.tenant_id, header_key=key[:255], defaults={"target_field": field}
+        )
+        if not created:
+            mapping.target_field = field
+            mapping.times_used += 1
+            mapping.save(update_fields=["target_field", "times_used", "updated_at"])
 
 
 class MedicineImportBaseView(StockPermissionView):
@@ -70,7 +92,7 @@ class ImportSessionCreateView(MedicineImportBaseView):
         if not records:
             return Response({"detail": "The file has a header row but no data rows."}, status=status.HTTP_400_BAD_REQUEST)
 
-        detected = importer.detect_columns(columns)
+        detected = _detect(tenant, columns, [values for _, values in records])
         with transaction.atomic():
             session = MedicineImportSession.objects.create(
                 tenant=tenant,
@@ -101,8 +123,9 @@ class ImportSessionAnalyzeView(MedicineImportBaseView):
         _, session, error = self._get_session(request, session_id)
         if error:
             return error
-        detected = importer.detect_columns(session.columns)
-        sample = [record.raw for record in session.records.all()[:5]]
+        sample_rows = [record.raw for record in session.records.all()[:200]]
+        detected = _detect(session.tenant, session.columns, sample_rows)
+        sample = sample_rows[:5]
         return Response({
             "session_id": str(session.id),
             "detected_columns": detected,
@@ -287,6 +310,7 @@ class ImportSessionConfirmView(MedicineImportBaseView):
                 "batches_created": len(valid),
                 "skipped": len(results) - len(valid),
             }
+            _remember_mapping(session)
             session.status = "COMPLETED"
             session.result = outcome
             session.completed_at = timezone.now()

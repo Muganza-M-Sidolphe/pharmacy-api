@@ -379,6 +379,21 @@ class MedicineImportSession(models.Model):
         return f"Import {self.file_name} ({self.status})"
 
 
+class ImportColumnMapping(models.Model):
+    """A pharmacy's confirmed choice for a column header, reused to map its next files."""
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="import_column_mappings")
+    # normalized header, e.g. "datedeperemption"
+    header_key = models.CharField(max_length=255)
+    target_field = models.CharField(max_length=30)
+    times_used = models.PositiveIntegerField(default=1)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["tenant", "header_key"], name="unique_import_mapping_per_tenant_header"),
+        ]
+
+
 class MedicineImportRecord(models.Model):
     """One data row of an import file, plus the user's corrections."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

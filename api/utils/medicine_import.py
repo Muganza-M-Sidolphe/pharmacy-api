@@ -2,8 +2,10 @@
 
 import calendar
 import csv
+import difflib
 import io
 import re
+import unicodedata
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
@@ -55,27 +57,47 @@ HEADER_ALIASES = {
     "unitprice": "selling_price",
     "supplier": "supplier", "suppliername": "supplier", "vendor": "supplier",
     "unit": "unit", "uom": "unit", "unitofmeasure": "unit",
+    # French
+    "designation": "medicine_name", "libelle": "medicine_name", "produit": "medicine_name",
+    "medicament": "medicine_name", "nomcommercial": "medicine_name", "nomduproduit": "medicine_name",
+    "dci": "generic_name", "nomgenerique": "generic_name",
+    "categorie": "category", "famille": "category", "classetherapeutique": "category",
+    "forme": "dosage_form", "formegalenique": "dosage_form",
+    "fabricant": "manufacturer", "laboratoire": "manufacturer", "labo": "manufacturer",
+    "codebarre": "barcode", "codebarres": "barcode",
+    "numerodelot": "batch_number", "nlot": "batch_number", "nodelot": "batch_number",
+    "datedefabrication": "manufacturing_date", "datefabrication": "manufacturing_date",
+    "datedexpiration": "expiry_date", "dateexpiration": "expiry_date", "peremption": "expiry_date",
+    "datedeperemption": "expiry_date", "dateperemption": "expiry_date",
+    "quantite": "quantity", "qte": "quantity", "qtte": "quantity",
+    "prixdachat": "cost_price", "prixachat": "cost_price", "pa": "cost_price", "pau": "cost_price",
+    "prixdevente": "selling_price", "prixvente": "selling_price", "pv": "selling_price",
+    "pu": "selling_price", "prixunitaire": "selling_price",
+    "fournisseur": "supplier", "unite": "unit",
+    # Kinyarwanda
+    "umuti": "medicine_name", "izina": "medicine_name", "izinaryumuti": "medicine_name",
+    "umubare": "quantity", "ingano": "quantity", "igiciro": "selling_price",
 }
 
 # Partial matches (substring of the normalized header), checked in order.
 # Reported with medium confidence because they need a human glance.
 HEADER_HINTS = [
-    (("expir", "bestbefore", "useby"), "expiry_date"),
-    (("mfg", "manufacturingdate", "manufacturedate", "productiondate"), "manufacturing_date"),
+    (("expir", "bestbefore", "useby", "peremp"), "expiry_date"),
+    (("mfg", "manufacturingdate", "manufacturedate", "productiondate", "fabrication"), "manufacturing_date"),
     (("batch", "lot"), "batch_number"),
-    (("generic",), "generic_name"),
-    (("barcode", "ean", "upc", "gtin"), "barcode"),
-    (("selling", "retail", "saleprice", "mrp"), "selling_price"),
-    (("cost", "purchase", "buying"), "cost_price"),
-    (("price", "rate"), "selling_price"),
-    (("qty", "quantity", "stock", "balance"), "quantity"),
-    (("manufactur",), "manufacturer"),
-    (("supplier", "vendor", "distributor"), "supplier"),
-    (("strength",), "strength"),
-    (("dosage", "form"), "dosage_form"),
-    (("categor",), "category"),
-    (("medicine", "drug", "product", "brand", "item", "name"), "medicine_name"),
-    (("unit", "uom", "pack"), "unit"),
+    (("generic", "generique"), "generic_name"),
+    (("barcode", "ean", "upc", "gtin", "codebarre"), "barcode"),
+    (("selling", "retail", "saleprice", "mrp", "vente", "kugurisha"), "selling_price"),
+    (("cost", "purchase", "buying", "achat", "kugura"), "cost_price"),
+    (("price", "rate", "prix", "igiciro"), "selling_price"),
+    (("qty", "quantity", "stock", "balance", "quantite", "qte", "umubare"), "quantity"),
+    (("manufactur", "fabricant", "laborato"), "manufacturer"),
+    (("supplier", "vendor", "distributor", "fournisseur"), "supplier"),
+    (("strength", "dosage"), "strength"),
+    (("form",), "dosage_form"),
+    (("categor", "famille"), "category"),
+    (("medicine", "medicament", "drug", "product", "produit", "brand", "item", "name", "designation", "libelle"), "medicine_name"),
+    (("unit", "uom", "pack", "conditionnement"), "unit"),
 ]
 
 
@@ -83,12 +105,21 @@ class ImportFileError(Exception):
     """The uploaded file cannot be read as a medicine list."""
 
 
+def _strip_accents(text):
+    return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
+
+
 def normalize_header(value):
-    return re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+    """'Date de péremption' → 'datedeperemption', 'N° Lot' → 'nlot'."""
+    return re.sub(r"[^a-z0-9]", "", _strip_accents(str(value or "").lower()))
 
 
 def normalize_name(value):
-    return re.sub(r"\s+", " ", str(value or "").strip()).lower()
+    """Matching key for medicine names: case, spacing and '500 mg' vs '500mg' don't matter."""
+    text = _strip_accents(str(value or "").lower())
+    text = re.sub(r"(\d)\s+(?=[a-zµ%])", r"\1", text)  # '500 mg' → '500mg'
+    text = re.sub(r"[^\w%/.]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def suggest_field(header):
@@ -281,20 +312,168 @@ def extract_table(rows):
     return [column for column in columns if column], records
 
 
-def detect_columns(columns):
+def detect_columns(columns, rows=(), learned=None):
     """Suggest a target field per column; each field is suggested for one column only.
 
-    Exact header matches claim their field first, then partial matches, in column order.
+    Sources, strongest first: what this pharmacy chose for the same header in earlier
+    imports (`learned`: {normalized header: field}), exact header names, partial header
+    names, and finally the shape of the values in `rows` (dicts of column → text).
     """
-    detected = [{"name": name, "target_field": IGNORE, "confidence": "low"} for name in columns]
-    suggestions = [suggest_field(name) for name in columns]
+    learned = learned or {}
+    detected = {name: {"name": name, "target_field": IGNORE, "confidence": "low", "source": "none"} for name in columns}
     taken = set()
+
+    def assign(name, field, confidence, source):
+        item = detected[name]
+        if item["source"] != "none" or (field != IGNORE and field in taken):
+            return
+        item.update(target_field=field, confidence=confidence, source=source)
+        if field != IGNORE:
+            taken.add(field)
+
+    for name in columns:
+        field = learned.get(normalize_header(name))
+        if field:
+            assign(name, field, "high", "learned")
+    suggestions = {name: suggest_field(name) for name in columns}
     for wanted in ("high", "medium"):
-        for item, (field, confidence) in zip(detected, suggestions):
-            if confidence == wanted and field not in taken:
-                item["target_field"], item["confidence"] = field, confidence
-                taken.add(field)
-    return detected
+        for name in columns:
+            field, confidence = suggestions[name]
+            if confidence == wanted and field != IGNORE:
+                assign(name, field, confidence, "header")
+
+    unassigned = [name for name in columns if detected[name]["source"] == "none"]
+    for name, field in _guess_from_values(unassigned, list(rows)[:200], taken).items():
+        assign(name, field, "medium", "values")
+    return [detected[name] for name in columns]
+
+
+CODE_RE = re.compile(r"^(?=.*[A-Za-z])(?=.*\d)[A-Za-z0-9\-/.]{3,20}$")
+BARCODE_RE = re.compile(r"^\d{8,14}$")
+
+
+def _profile(values):
+    """Shares of a column's non-empty values that look like dates, numbers, codes or words."""
+    values = [v for v in values if v]
+    if not values:
+        return None
+    dates, numbers, codes, barcodes, words = [], [], 0, 0, 0
+    for value in values:
+        if BARCODE_RE.match(value):
+            barcodes += 1
+        try:
+            parsed = parse_date(value) if re.search(r"[-/.\s]", value) or not value.isdigit() else None
+        except ValueError:
+            parsed = None
+        if parsed:
+            dates.append(parsed)
+            continue
+        try:
+            number = parse_decimal(value)
+        except ValueError:
+            number = None
+        if number is not None and re.fullmatch(r"[\d\s,.\-]*(rwf|frw|usd|\$)?", value.lower().strip()):
+            numbers.append(number)
+        elif CODE_RE.match(value):
+            codes += 1
+        elif re.search(r"[A-Za-z]{3,}", value):
+            words += 1
+    count = len(values)
+    return {
+        "count": count,
+        "unique": len(set(values)) / count,
+        "dates": dates if len(dates) / count >= 0.8 else None,
+        "numbers": numbers if len(numbers) / count >= 0.9 else None,
+        "codes": codes / count,
+        "barcodes": barcodes / count,
+        "words": words / count,
+        "length": sum(len(v) for v in values) / count,
+    }
+
+
+def _median(items):
+    items = sorted(items)
+    return items[len(items) // 2]
+
+
+def _guess_from_values(columns, rows, taken):
+    """Guess fields for columns whose header was not recognized, from their values."""
+    profiles = {}
+    for name in columns:
+        profile = _profile([str(row.get(name, "") or "").strip() for row in rows])
+        if profile:
+            profiles[name] = profile
+    guesses = {}
+
+    def free(field):
+        return field not in taken and field not in guesses.values()
+
+    # Dates: the later column is the expiry date, an earlier one the manufacturing date.
+    date_columns = sorted((p for p in profiles.items() if p[1]["dates"]), key=lambda p: _median(p[1]["dates"]))
+    if date_columns and free("expiry_date"):
+        guesses[date_columns[-1][0]] = "expiry_date"
+        if len(date_columns) > 1 and free("manufacturing_date"):
+            guesses[date_columns[0][0]] = "manufacturing_date"
+
+    remaining = [name for name in profiles if name not in guesses]
+    for name in remaining:
+        p = profiles[name]
+        if p["barcodes"] >= 0.9 and free("barcode"):
+            guesses[name] = "barcode"
+        elif p["codes"] >= 0.8 and free("batch_number"):
+            guesses[name] = "batch_number"
+
+    # Numbers: whole numbers with the smallest typical value are quantities;
+    # of two price-like columns the lower one is the cost price.
+    numeric = [name for name in profiles if name not in guesses and profiles[name]["numbers"]]
+    if numeric and free("quantity"):
+        whole = [n for n in numeric if all(x == x.to_integral_value() for x in profiles[n]["numbers"])]
+        if whole and len(numeric) > 1:
+            quantity = min(whole, key=lambda n: _median(profiles[n]["numbers"]))
+            guesses[quantity] = "quantity"
+            numeric.remove(quantity)
+    prices = sorted(numeric, key=lambda n: _median(profiles[n]["numbers"]))
+    if len(prices) >= 2 and free("cost_price") and free("selling_price"):
+        guesses[prices[0]], guesses[prices[1]] = "cost_price", "selling_price"
+    elif len(prices) == 1 and free("selling_price"):
+        guesses[prices[0]] = "selling_price"
+
+    # Text: the most varied wordy column names the medicine.
+    if free("medicine_name"):
+        texts = [n for n in profiles if n not in guesses and profiles[n]["words"] >= 0.6]
+        if texts:
+            best = max(texts, key=lambda n: (profiles[n]["unique"], profiles[n]["length"]))
+            guesses[best] = "medicine_name"
+    return guesses
+
+
+STRENGTH_RE = re.compile(
+    r"\b\d+(?:[.,]\d+)?\s?(?:mg|mcg|µg|ug|g|ml|iu|ui|%)(?:\s?/\s?\d*(?:[.,]\d+)?\s?(?:ml|g|mg|l|dose))?(?![a-z])",
+    re.IGNORECASE,
+)
+DOSAGE_FORMS = {
+    "tablet": "Tablet", "tablets": "Tablet", "tab": "Tablet", "tabs": "Tablet", "cp": "Tablet",
+    "comprime": "Tablet", "comprimes": "Tablet", "cpr": "Tablet",
+    "capsule": "Capsule", "capsules": "Capsule", "cap": "Capsule", "caps": "Capsule", "gelule": "Capsule",
+    "syrup": "Syrup", "syr": "Syrup", "sirop": "Syrup",
+    "suspension": "Suspension", "susp": "Suspension",
+    "injection": "Injection", "inj": "Injection", "injectable": "Injection", "ampoule": "Injection", "amp": "Injection",
+    "cream": "Cream", "creme": "Cream", "ointment": "Ointment", "pommade": "Ointment", "gel": "Gel",
+    "drops": "Drops", "gouttes": "Drops", "sachet": "Sachet", "sachets": "Sachet",
+    "suppository": "Suppository", "suppositoire": "Suppository", "supp": "Suppository",
+    "inhaler": "Inhaler", "spray": "Spray", "solution": "Solution", "sol": "Solution", "lotion": "Lotion",
+    "powder": "Powder", "poudre": "Powder",
+}
+
+
+def parse_medicine_name(name):
+    """Pull the strength and dosage form out of a name like 'Amoxil 500mg Caps'."""
+    strength = STRENGTH_RE.search(name or "")
+    form = next(
+        (DOSAGE_FORMS[word] for word in re.findall(r"[a-z]+", _strip_accents((name or "").lower())) if word in DOSAGE_FORMS),
+        "",
+    )
+    return (re.sub(r"\s+", "", strength.group(0)) if strength else ""), form
 
 
 # ---------------------------------------------------------------------------
@@ -375,6 +554,10 @@ def record_values(session, record):
     for field, value in (record.overrides or {}).items():
         if field in values:
             values[field] = str(value if value is not None else "").strip()
+    if values["medicine_name"] and not (values["strength"] and values["dosage_form"]):
+        strength, form = parse_medicine_name(values["medicine_name"])
+        values["strength"] = values["strength"] or strength
+        values["dosage_form"] = values["dosage_form"] or form
     return values
 
 
@@ -386,13 +569,43 @@ def evaluate_records(session, records, existing_medicines, existing_batches, tod
     """
     today = today or date.today()
     seen_batches = {}
+    similar = SimilarNames(existing_medicines)
     return [
-        evaluate_record(session, record, existing_medicines, existing_batches, seen_batches, today)
+        evaluate_record(session, record, existing_medicines, existing_batches, seen_batches, today, similar)
         for record in records
     ]
 
 
-def evaluate_record(session, record, existing_medicines, existing_batches, seen_batches, today):
+class SimilarNames:
+    """Finds an existing medicine whose name is spelled almost the same (typos, extra words).
+
+    Only names with the same first three letters and the same numbers are compared:
+    'Amoxil 250mg' and 'Amoxil 500mg' are different products, and the small buckets keep
+    a 3,000-row preview fast against a large inventory.
+    """
+
+    CUTOFF = 0.88
+
+    @staticmethod
+    def _bucket(name_key):
+        return name_key[:3], tuple(re.findall(r"\d+", name_key))
+
+    def __init__(self, medicines):
+        self.medicines = medicines
+        self.buckets = {}
+        for key in medicines:
+            self.buckets.setdefault(self._bucket(key), []).append(key)
+        self.cache = {}
+
+    def find(self, name_key):
+        if name_key not in self.cache:
+            candidates = self.buckets.get(self._bucket(name_key), [])
+            match = difflib.get_close_matches(name_key, candidates, n=1, cutoff=self.CUTOFF)
+            self.cache[name_key] = self.medicines[match[0]] if match else None
+        return self.cache[name_key]
+
+
+def evaluate_record(session, record, existing_medicines, existing_batches, seen_batches, today, similar=None):
     values = record_values(session, record)
     errors, warnings = [], []
     parsed = {}
@@ -500,6 +713,13 @@ def evaluate_record(session, record, existing_medicines, existing_batches, seen_
             )
         else:
             seen_batches[(name_key, batch_key)] = record.row_number
+    if name and not existing and similar:
+        close = similar.find(name_key)
+        if close:
+            warnings.append(
+                f"Looks like existing medicine '{close.brand_name}'. It will be added as a new medicine; "
+                "correct the name if it is the same one."
+            )
 
     is_valid = not errors
     return {

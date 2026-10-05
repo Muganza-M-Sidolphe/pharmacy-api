@@ -11,7 +11,7 @@ from rest_framework.test import APIClient
 
 from .models import Medicine, StockBatch, StockMovement, UserTenant
 from .tests import SubscriptionAccessTestMixin
-from .utils.medicine_import import parse_date, parse_decimal
+from .utils.medicine_import import parse_date, parse_decimal, parse_medicine_name
 
 
 def _text_pdf(lines):
@@ -278,6 +278,76 @@ class MedicineImportTests(TestCase, SubscriptionAccessTestMixin):
         self.assertEqual(self.client.get(self._url("medicine-import-preview", session_id)).status_code, 404)
 
 
+@override_settings(SECURE_SSL_REDIRECT=False)
+class SmartColumnDetectionTests(TestCase, SubscriptionAccessTestMixin):
+    def setUp(self):
+        self.client = APIClient()
+        self.tenant = self.create_tenant("SmartPharm")
+        self.owner = self.create_user("owner-smart@example.com", "Owner")
+        UserTenant.objects.create(user=self.owner, tenant=self.tenant, role="OWNER")
+        self.client.force_authenticate(user=self.owner)
+
+    def _url(self, name, *args):
+        return reverse(name, args=args) + f"?tenantId={self.tenant.id}"
+
+    def _analyze(self, csv_text):
+        upload = SimpleUploadedFile("stock.csv", csv_text.encode())
+        session_id = self.client.post(self._url("medicine-import-sessions"), {"file": upload}, format="multipart").data["session_id"]
+        res = self.client.post(self._url("medicine-import-analyze", session_id))
+        return session_id, {c["name"]: c["target_field"] for c in res.data["detected_columns"]}
+
+    def test_french_headers(self):
+        _, targets = self._analyze(
+            "Désignation;DCI;N° Lot;Date de péremption;Qté;Prix d'achat;Prix de vente;Fournisseur\n"
+            "Doliprane 500mg cp;Paracétamol;L1;12/2030;10;100;150;Sopharma\n"
+        )
+        self.assertEqual(targets, {
+            "Désignation": "medicine_name", "DCI": "generic_name", "N° Lot": "batch_number",
+            "Date de péremption": "expiry_date", "Qté": "quantity", "Prix d'achat": "cost_price",
+            "Prix de vente": "selling_price", "Fournisseur": "supplier",
+        })
+
+    def test_unknown_headers_guessed_from_values(self):
+        _, targets = self._analyze(
+            "Col A,Col B,Col C,Col D,Col E,Col F\n"
+            "Amoxil 500mg Caps,AX23K,2024-01-10,2027-01-31,120,1500\n"
+            "Coartem 20/120mg,CT9921,2024-03-02,2026-11-30,40,4200\n"
+            "Panadol Syrup,PN-77B,2024-05-01,2027-05-31,15,2500\n"
+        )
+        self.assertEqual(targets, {
+            "Col A": "medicine_name", "Col B": "batch_number", "Col C": "manufacturing_date",
+            "Col D": "expiry_date", "Col E": "quantity", "Col F": "selling_price",
+        })
+
+    def test_strength_and_form_are_read_from_the_name(self):
+        session_id, _ = self._analyze("Medicine,Batch,Qty,Selling Price\nAmoxil 500 mg Caps,B1,5,10\n")
+        data = self.client.get(self._url("medicine-import-preview", session_id)).data["records"][0]["mapped_data"]
+        self.assertEqual((data["strength"], data["dosage_form"]), ("500mg", "Capsule"))
+        self.client.post(self._url("medicine-import-confirm", session_id))
+        self.assertEqual(Medicine.objects.get(brand_name="Amoxil 500 mg Caps").description, "Strength: 500mg; Dosage form: Capsule")
+
+    def test_corrected_mapping_is_remembered(self):
+        csv_text = "Article,Ref,Nombre,Montant\nPanadol,P1,5,100\n"
+        session_id, targets = self._analyze(csv_text)
+        mapping = {"Article": "medicine_name", "Ref": "batch_number", "Nombre": "quantity", "Montant": "selling_price"}
+        self.client.patch(
+            self._url("medicine-import-mapping", session_id),
+            {"mapping": [{"source_column": c, "target_field": t} for c, t in mapping.items()]},
+            format="json",
+        )
+        self.assertEqual(self.client.post(self._url("medicine-import-confirm", session_id)).status_code, 200)
+
+        _, targets = self._analyze("Article,Ref,Nombre,Montant\nCoartem,C1,2,300\n")
+        self.assertEqual(targets, mapping)
+
+    def test_similar_existing_name_warns(self):
+        Medicine.objects.create(tenant=self.tenant, brand_name="Paracetamol 500mg")
+        session_id, _ = self._analyze("Medicine,Batch,Qty,Selling Price\nParacetamoll 500mg,B1,5,10\nparacetamol 500 MG,B2,5,10\n")
+        rows = self.client.get(self._url("medicine-import-preview", session_id)).data["records"]
+        self.assertTrue(any("Looks like existing medicine" in w for w in rows[0]["warnings"]), rows[0]["warnings"])
+        self.assertEqual(rows[1]["medicine_status"], "existing")
+
+
 class MedicineImportParsingTests(TestCase):
     def test_parse_date_formats(self):
         self.assertEqual(parse_date("2030-05-04"), date(2030, 5, 4))
@@ -288,6 +358,12 @@ class MedicineImportParsingTests(TestCase):
         self.assertIsNone(parse_date(""))
         with self.assertRaises(ValueError):
             parse_date("soon")
+
+    def test_parse_medicine_name(self):
+        self.assertEqual(parse_medicine_name("Amoxicillin 250mg/5ml Susp"), ("250mg/5ml", "Suspension"))
+        self.assertEqual(parse_medicine_name("Doliprane 1 g comprimés"), ("1g", "Tablet"))
+        self.assertEqual(parse_medicine_name("Betadine 10% Solution"), ("10%", "Solution"))
+        self.assertEqual(parse_medicine_name("Vitamin C"), ("", ""))
 
     def test_parse_decimal(self):
         self.assertEqual(parse_decimal("1,500 RWF"), Decimal("1500"))
