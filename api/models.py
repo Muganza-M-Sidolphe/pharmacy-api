@@ -313,6 +313,102 @@ class StockBatch(models.Model):
         return f"{self.medicine.brand_name} - {self.batch_number}"
 
 
+class StockMovement(models.Model):
+    """Audit trail of quantity changes on a stock batch."""
+    TYPE_CHOICES = (
+        ("RECEIVE", "Stock received"),
+        ("IMPORT", "Imported from file"),
+        ("ADJUSTMENT", "Manual adjustment"),
+        ("TRANSFER_OUT", "Transferred out"),
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="stock_movements")
+    batch = models.ForeignKey(StockBatch, on_delete=models.CASCADE, related_name="movements")
+    movement_type = models.CharField(max_length=20, choices=TYPE_CHOICES)
+    # Signed change: positive adds stock, negative removes it.
+    quantity = models.IntegerField()
+    balance_after = models.IntegerField()
+    reason = models.TextField(blank=True, default="")
+    destination = models.CharField(max_length=255, blank=True, default="")
+    reference = models.CharField(max_length=255, blank=True, default="")
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.movement_type} {self.quantity} on {self.batch_id}"
+
+
+class MedicineImportSession(models.Model):
+    """An uploaded medicine file going through map → preview → confirm."""
+    STATUS_CHOICES = (
+        ("PENDING", "Pending"),
+        ("COMPLETED", "Completed"),
+    )
+    PRICING_CHOICES = (
+        ("file", "Selling price from file"),
+        ("markup", "Cost price plus markup"),
+        ("manual", "Entered manually"),
+    )
+    BATCH_STRATEGY_CHOICES = (
+        ("manual", "Fix missing batch numbers manually"),
+        ("generate", "Generate internal batch numbers"),
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="medicine_imports")
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    file_name = models.CharField(max_length=255)
+    file_type = models.CharField(max_length=10)
+    columns = models.JSONField(default=list, blank=True)
+    # {source column name: target field}
+    mapping = models.JSONField(default=dict, blank=True)
+    pricing_method = models.CharField(max_length=10, choices=PRICING_CHOICES, default="file")
+    markup_percent = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True)
+    missing_batch_strategy = models.CharField(max_length=10, choices=BATCH_STRATEGY_CHOICES, default="manual")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="PENDING")
+    result = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"Import {self.file_name} ({self.status})"
+
+
+class ImportColumnMapping(models.Model):
+    """A pharmacy's confirmed choice for a column header, reused to map its next files."""
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="import_column_mappings")
+    # normalized header, e.g. "datedeperemption"
+    header_key = models.CharField(max_length=255)
+    target_field = models.CharField(max_length=30)
+    times_used = models.PositiveIntegerField(default=1)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["tenant", "header_key"], name="unique_import_mapping_per_tenant_header"),
+        ]
+
+
+class MedicineImportRecord(models.Model):
+    """One data row of an import file, plus the user's corrections."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    session = models.ForeignKey(MedicineImportSession, on_delete=models.CASCADE, related_name="records")
+    row_number = models.IntegerField()
+    # {source column name: cell text}
+    raw = models.JSONField(default=dict, blank=True)
+    # {target field: corrected value}, takes precedence over the mapped raw value
+    overrides = models.JSONField(default=dict, blank=True)
+    removed = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["row_number"]
+
+
 class Sale(models.Model):
     """Represents a sale/invoice created by cashier."""
     STATUS_CHOICES = (
