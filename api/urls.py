@@ -4,6 +4,7 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from .views import RegisterTenantView,RegisterOwnerView, LoginView, LogoutView,SelectTenantView,DemoRolesView,SwitchRoleView,CreateUserView, OwnerUserListView,OwnerUpdateUserView,OwnerUserStatusView,OwnerResetUserPasswordView,UsersSummaryView,SearchUsersView,RolesListView,ChangePasswordView, ForgotPasswordView, ResetPasswordView, OwnerUsersDashboardView, OwnerNotificationsView, OwnerNotificationDetailView, OwnerNotificationsDashboardView, OwnerDashboardView, OwnerDashboardSummaryView, OwnerDashboardSalesTrendView, OwnerDashboardPartialInvoicesView, OwnerTenantsListView, OwnerSwitchTenantView, PharmacySettingsView, OwnerPharmaciesView, OwnerSettingsOverviewView, OwnerSettingsConsolidatedView, OwnerInvoicesListView, OwnerInvoiceDetailView, OwnerInvoicesSummaryView, OwnerInvoicesDashboardView, OwnerApprovePartialInvoiceView, OwnerRejectPartialInvoiceView, OwnerInventoryView, OwnerInventorySummaryView, OwnerInventoryMedicineDetailView, OwnerSalesDashboardView, OwnerSalesSummaryView, OwnerDailySalesTrendView, OwnerPaymentMethodsDistributionView, OwnerExportSalesView, OwnerSalesReportsDashboardView, OwnerUserManagementReportView, OwnerUsersSummaryCardsView, SupportTicketViewSet
 from .views.user_token import UserFirebaseTokenView
 from .views.storekeeper.inventory import InventoryListCreateView
+from .views.owner.access import AccessPermissionsView, AccessRolesView, AccessRoleDetailView, AccessUsersView, AccessUserDetailView, AccessUserPermissionsView, AccessUserRoleView
 from .views.storekeeper.stock_batches import StockInView, BatchMovementsView, BatchAdjustView, BatchTransferView
 from .views.storekeeper.medicine_import import ImportSessionCreateView, ImportSessionAnalyzeView, ImportSessionMappingView, ImportSessionPreviewView, ImportRecordView, ImportSessionConfirmView
 from .views.storekeeper.expiry_alerts import ExpiryAlertsView, ExpiryAlertsSummaryView, ExpiryAlertsCriticalView, ExpiredBatchesView
@@ -159,6 +160,13 @@ urlpatterns = [
     path("owner/reports/user-management/", OwnerUserManagementReportView.as_view(), name="owner-reports-user-management"),
     path("owner/reports/user-management/summary/", OwnerUsersSummaryCardsView.as_view(), name="owner-reports-user-management-summary"),
     path("storekeeper/inventory/", InventoryListCreateView.as_view(), name="storekeeper-inventory"),
+    path("access/permissions/", AccessPermissionsView.as_view(), name="access-permissions"),
+    path("access/roles/", AccessRolesView.as_view(), name="access-roles"),
+    path("access/roles/<str:role_id>/", AccessRoleDetailView.as_view(), name="access-role-detail"),
+    path("access/users/", AccessUsersView.as_view(), name="access-users"),
+    path("access/users/<uuid:user_id>/", AccessUserDetailView.as_view(), name="access-user-detail"),
+    path("access/users/<uuid:user_id>/permissions/", AccessUserPermissionsView.as_view(), name="access-user-permissions"),
+    path("access/users/<uuid:user_id>/role/", AccessUserRoleView.as_view(), name="access-user-role"),
     path("stock/in", StockInView.as_view(), name="stock-in-no-slash"),
     path("stock/in/", StockInView.as_view(), name="stock-in"),
     path("stock/batches/<uuid:batch_id>/movements/", BatchMovementsView.as_view(), name="stock-batch-movements"),

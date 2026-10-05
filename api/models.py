@@ -57,6 +57,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     user_code = models.CharField(max_length=20, unique=True, null=True, blank=True)
     name = models.CharField(max_length=255)
     email = models.EmailField(unique=True)
+    phone = models.CharField(max_length=30, blank=True, default="")
     password = models.CharField(max_length=255)
     department = models.CharField(
         max_length=20,
@@ -100,6 +101,33 @@ class UserTenant(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="user_tenants")
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES)
+    # A custom role from Users & Roles; `role` then holds its base role (dashboard and legacy checks).
+    custom_role = models.ForeignKey(
+        "TenantRole", on_delete=models.SET_NULL, null=True, blank=True, related_name="memberships"
+    )
+    # Permission codes set for this user only; when set they replace the role's permissions.
+    permission_overrides = models.JSONField(null=True, blank=True)
+
+
+class TenantRole(models.Model):
+    """A pharmacy's role: a customized system role (is_system) or a custom role built on a base role."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="roles")
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True, default="")
+    base_role = models.CharField(max_length=20, choices=UserTenant.ROLE_CHOICES)
+    is_system = models.BooleanField(default=False)
+    permissions = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["tenant", "name"], name="unique_role_name_per_tenant"),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.tenant_id})"
 
 
 class PasswordResetToken(models.Model):

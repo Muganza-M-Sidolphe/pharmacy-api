@@ -7,7 +7,7 @@ from rest_framework.views import APIView
 from ...models import UserTenant
 from ...utils.demo import is_demo_user
 from ...utils.jwt import generate_token
-from ...utils.permission_codes import permissions_for_role
+from ...utils.permission_codes import membership_permissions
 from .login import _is_collaborative_retail, _tenant_business_type, _tenant_pharmacy_type
 
 
@@ -89,7 +89,10 @@ class SwitchRoleView(APIView):
         with transaction.atomic():
             memberships.exclude(id=membership.id).delete()
             membership.role = tenant_role
-            membership.save(update_fields=["role"])
+            # The demo account gets exactly the chosen role's access.
+            membership.custom_role = None
+            membership.permission_overrides = None
+            membership.save(update_fields=["role", "custom_role", "permission_overrides"])
             user.department = "RETAIL" if new_role == "RETAIL" else "WHOLESALE"
             user.save(update_fields=["department"])
 
@@ -110,7 +113,7 @@ class SwitchRoleView(APIView):
                     "pharmacyType": _tenant_pharmacy_type(tenant, business_type=business_type),
                 },
                 "role": tenant_role,
-                "permissions": permissions_for_role(tenant_role),
+                "permissions": membership_permissions(membership),
                 "demoRole": new_role,
                 "department": user.department,
                 "isCollaborativeRetail": _is_collaborative_retail(user, tenant, business_type=business_type),
