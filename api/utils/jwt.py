@@ -1,6 +1,6 @@
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .permission_codes import permissions_for_role
+from .permission_codes import permissions_for_role, user_permissions
 
 def generate_token(user, tenant=None, role=None):
     refresh = RefreshToken.for_user(user)
@@ -16,7 +16,7 @@ def generate_token(user, tenant=None, role=None):
 
     if role:
         refresh["role"] = role
-        refresh["permissions"] = permissions_for_role(role)
+        refresh["permissions"] = user_permissions(user, tenant.id) if tenant else permissions_for_role(role)
 
     return {
         "refresh": str(refresh),

@@ -4,7 +4,7 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from ...models import UserTenant
 from ...utils.jwt import generate_token
-from ...utils.permission_codes import permissions_for_role
+from ...utils.permission_codes import membership_permissions
 
 
 def _tenant_business_type(tenant):
@@ -60,7 +60,7 @@ class SelectTenantView(APIView):
                         and _tenant_business_type(tenant) == "WHOLESALE"
                     ),
                     "role": user_tenant.role,
-                    "permissions": permissions_for_role(user_tenant.role),
+                    "permissions": membership_permissions(user_tenant),
                     "tenant_id": str(tenant.id),
                     "tenant_name": tenant.name,
                     "currency": tenant.currency,
