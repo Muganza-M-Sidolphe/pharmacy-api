@@ -80,6 +80,9 @@ HEADER_ALIASES = {
     # Common report spellings
     "itemdescription": "medicine_name", "productdescription": "medicine_name", "itemname": "medicine_name",
     "dateexp": "expiry_date", "datedexp": "expiry_date", "expiringdate": "expiry_date", "useby": "expiry_date",
+    "preparation": "dosage_form", "formulation": "dosage_form", "presentation": "dosage_form",
+    "stocklevel": "quantity", "stockonhand": "quantity", "soh": "quantity", "closingstock": "quantity",
+    "balance": "quantity", "currentstock": "quantity", "packsize": "unit", "pack": "unit",
 }
 
 # Currency suffixes ignored when matching headers: 'Unit Cost (RWF)' matches 'Unit Cost'.
@@ -228,6 +231,32 @@ def _align_pdf_lines(lines, anchor):
     return rows
 
 
+def _ruled_table_rows(page, table):
+    """Rows of a ruled table. pdfplumber sometimes returns no text for a cell (merged or
+    oddly drawn borders); those cells are refilled from the words inside their column and row."""
+    data = table.extract()
+    columns = {}
+    for row in table.rows:
+        for index, cell in enumerate(row.cells):
+            if cell:
+                columns.setdefault(index, (cell[0], cell[2]))
+    rows = []
+    for row, values in zip(table.rows, data):
+        cells = []
+        for index, value in enumerate(values):
+            text = _cell_text(value)
+            if not text and index in columns and row.bbox:
+                x0, x1 = columns[index]
+                _, top, _, bottom = row.bbox
+                try:
+                    text = _cell_text(page.crop((x0, top, x1, bottom)).extract_text())
+                except ValueError:
+                    text = ""
+            cells.append(text)
+        rows.append(cells)
+    return rows
+
+
 def _read_pdf(data):
     import pdfplumber
 
@@ -237,11 +266,11 @@ def _read_pdf(data):
     try:
         with pdfplumber.open(io.BytesIO(data)) as pdf:
             for page in pdf.pages:
-                tables = page.extract_tables()
+                tables = page.find_tables()
                 if tables:  # ruled table
                     has_text = True
                     for table in tables:
-                        rows.extend([[_cell_text(cell) for cell in row] for row in table])
+                        rows.extend(_ruled_table_rows(page, table))
                     continue
                 lines = _pdf_lines(page)
                 if not lines:
@@ -358,6 +387,19 @@ def detect_columns(columns, rows=(), learned=None):
     for name, field in _guess_from_values(unassigned, list(rows)[:200], taken).items():
         assign(name, field, "medium", "values")
     return [detected[name] for name in columns]
+
+
+STOCK_FIELDS = {"quantity", "batch_number", "expiry_date", "selling_price", "cost_price", "strength"}
+
+
+def looks_like_medicine_list(detected):
+    """A medicine name column plus stock columns; rejects letters, SOPs and forms.
+
+    When no header was recognized (only guesses from values), ask for two stock columns.
+    """
+    fields = {item["target_field"] for item in detected}
+    from_headers = any(item["source"] in ("header", "learned") and item["target_field"] != IGNORE for item in detected)
+    return "medicine_name" in fields and len(fields & STOCK_FIELDS) >= (1 if from_headers else 2)
 
 
 CODE_RE = re.compile(r"^(?=.*[A-Za-z])(?=.*\d)[A-Za-z0-9\-/.]{3,20}$")
@@ -587,7 +629,14 @@ def evaluate_records(session, records, existing_medicines, existing_batches, tod
     return [
         evaluate_record(session, record, existing_medicines, existing_batches, seen_batches, today, similar)
         for record in records
+        if not _is_note_row(session, record)
     ]
+
+
+def _is_note_row(session, record):
+    """Footnotes and blank lines: nothing in the name, quantity, batch or price columns."""
+    values = record_values(session, record)
+    return not any(values[field] for field in ("medicine_name", "quantity", "batch_number", "cost_price", "selling_price"))
 
 
 class SimilarNames:

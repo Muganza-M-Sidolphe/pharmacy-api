@@ -262,6 +262,16 @@ class MedicineImportTests(TestCase, SubscriptionAccessTestMixin):
         self.assertEqual(res.status_code, 400)
         self.assertIn("scanned", res.data["detail"])
 
+    def test_rejects_file_that_is_not_a_medicine_list(self):
+        res = self._upload("Step,Instruction\n1.,Write the card number\n2.,Sign and date the card\n")
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("does not look like a medicine list", res.data["detail"])
+
+    def test_footnote_rows_are_skipped(self):
+        csv_text = "Drug Name,Strength,Stock Level,Comment\nParacetamol,500mg,10,\n,,,*other = over the counter\n"
+        session_id = self._upload(csv_text).data["session_id"]
+        self.assertEqual(self._preview(session_id)["summary"]["total"], 1)
+
     def test_rejects_unsupported_file(self):
         self.assertEqual(self._upload("hello", name="notes.txt").status_code, 400)
 

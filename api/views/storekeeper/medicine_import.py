@@ -93,6 +93,12 @@ class ImportSessionCreateView(MedicineImportBaseView):
             return Response({"detail": "The file has a header row but no data rows."}, status=status.HTTP_400_BAD_REQUEST)
 
         detected = _detect(tenant, columns, [values for _, values in records])
+        if not importer.looks_like_medicine_list(detected):
+            return Response({
+                "detail": "This file does not look like a medicine list: no columns for the medicine name "
+                          "and its quantity, batch, expiry or price were found. Upload your stock list or "
+                          "inventory export.",
+            }, status=status.HTTP_400_BAD_REQUEST)
         with transaction.atomic():
             session = MedicineImportSession.objects.create(
                 tenant=tenant,
