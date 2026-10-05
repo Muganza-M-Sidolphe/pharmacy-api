@@ -5,6 +5,7 @@ from django.contrib.auth import authenticate
 from ...models import UserTenant, TenantSubscription, SubscriptionPlan
 from ...utils.demo import is_demo_user
 from ...utils.jwt import generate_token
+from ...utils.permission_codes import permissions_for_role
 
 
 def _tenant_business_type(tenant):
@@ -126,6 +127,7 @@ class LoginView(APIView):
                         "pharmacyType": pharmacy_type
                     },
                     "role": ut.role,
+                    "permissions": permissions_for_role(ut.role),
                     "department": user.department,
                     "isCollaborativeRetail": _is_collaborative_retail(user, ut.tenant, business_type=business_type),
                     "canSwitchRole": is_demo_user(user),

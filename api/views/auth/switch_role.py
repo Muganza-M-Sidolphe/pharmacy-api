@@ -7,6 +7,7 @@ from rest_framework.views import APIView
 from ...models import UserTenant
 from ...utils.demo import is_demo_user
 from ...utils.jwt import generate_token
+from ...utils.permission_codes import permissions_for_role
 from .login import _is_collaborative_retail, _tenant_business_type, _tenant_pharmacy_type
 
 
@@ -109,6 +110,7 @@ class SwitchRoleView(APIView):
                     "pharmacyType": _tenant_pharmacy_type(tenant, business_type=business_type),
                 },
                 "role": tenant_role,
+                "permissions": permissions_for_role(tenant_role),
                 "demoRole": new_role,
                 "department": user.department,
                 "isCollaborativeRetail": _is_collaborative_retail(user, tenant, business_type=business_type),

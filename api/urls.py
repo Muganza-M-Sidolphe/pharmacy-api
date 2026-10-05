@@ -4,6 +4,8 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from .views import RegisterTenantView,RegisterOwnerView, LoginView, LogoutView,SelectTenantView,DemoRolesView,SwitchRoleView,CreateUserView, OwnerUserListView,OwnerUpdateUserView,OwnerUserStatusView,OwnerResetUserPasswordView,UsersSummaryView,SearchUsersView,RolesListView,ChangePasswordView, ForgotPasswordView, ResetPasswordView, OwnerUsersDashboardView, OwnerNotificationsView, OwnerNotificationDetailView, OwnerNotificationsDashboardView, OwnerDashboardView, OwnerDashboardSummaryView, OwnerDashboardSalesTrendView, OwnerDashboardPartialInvoicesView, OwnerTenantsListView, OwnerSwitchTenantView, PharmacySettingsView, OwnerPharmaciesView, OwnerSettingsOverviewView, OwnerSettingsConsolidatedView, OwnerInvoicesListView, OwnerInvoiceDetailView, OwnerInvoicesSummaryView, OwnerInvoicesDashboardView, OwnerApprovePartialInvoiceView, OwnerRejectPartialInvoiceView, OwnerInventoryView, OwnerInventorySummaryView, OwnerInventoryMedicineDetailView, OwnerSalesDashboardView, OwnerSalesSummaryView, OwnerDailySalesTrendView, OwnerPaymentMethodsDistributionView, OwnerExportSalesView, OwnerSalesReportsDashboardView, OwnerUserManagementReportView, OwnerUsersSummaryCardsView, SupportTicketViewSet
 from .views.user_token import UserFirebaseTokenView
 from .views.storekeeper.inventory import InventoryListCreateView
+from .views.storekeeper.stock_batches import StockInView, BatchMovementsView, BatchAdjustView, BatchTransferView
+from .views.storekeeper.medicine_import import ImportSessionCreateView, ImportSessionAnalyzeView, ImportSessionMappingView, ImportSessionPreviewView, ImportRecordView, ImportSessionConfirmView
 from .views.storekeeper.expiry_alerts import ExpiryAlertsView, ExpiryAlertsSummaryView, ExpiryAlertsCriticalView, ExpiredBatchesView
 from .views.cashier.dashboard import CashierDashboardSummaryView, CashierStockAlertsView, CashierAvailableMedicinesView, CashierPendingRequestsView, CashierExpiryAlertsView
 from .views.cashier.inventory import CashierInventoryListView
@@ -157,6 +159,17 @@ urlpatterns = [
     path("owner/reports/user-management/", OwnerUserManagementReportView.as_view(), name="owner-reports-user-management"),
     path("owner/reports/user-management/summary/", OwnerUsersSummaryCardsView.as_view(), name="owner-reports-user-management-summary"),
     path("storekeeper/inventory/", InventoryListCreateView.as_view(), name="storekeeper-inventory"),
+    path("stock/in", StockInView.as_view(), name="stock-in-no-slash"),
+    path("stock/in/", StockInView.as_view(), name="stock-in"),
+    path("stock/batches/<uuid:batch_id>/movements/", BatchMovementsView.as_view(), name="stock-batch-movements"),
+    path("stock/batches/<uuid:batch_id>/adjust/", BatchAdjustView.as_view(), name="stock-batch-adjust"),
+    path("stock/batches/<uuid:batch_id>/transfer/", BatchTransferView.as_view(), name="stock-batch-transfer"),
+    path("medicine-import/sessions/", ImportSessionCreateView.as_view(), name="medicine-import-sessions"),
+    path("medicine-import/sessions/<uuid:session_id>/analyze/", ImportSessionAnalyzeView.as_view(), name="medicine-import-analyze"),
+    path("medicine-import/sessions/<uuid:session_id>/mapping/", ImportSessionMappingView.as_view(), name="medicine-import-mapping"),
+    path("medicine-import/sessions/<uuid:session_id>/preview/", ImportSessionPreviewView.as_view(), name="medicine-import-preview"),
+    path("medicine-import/sessions/<uuid:session_id>/records/<uuid:record_id>/", ImportRecordView.as_view(), name="medicine-import-record"),
+    path("medicine-import/sessions/<uuid:session_id>/confirm/", ImportSessionConfirmView.as_view(), name="medicine-import-confirm"),
     path("storekeeper/expiry-alerts/", ExpiryAlertsView.as_view(), name="storekeeper-expiry-alerts"),
     path("storekeeper/expiry-alerts/summary/", ExpiryAlertsSummaryView.as_view(), name="storekeeper-expiry-alerts-summary"),
     path("storekeeper/expiry-alerts/critical/", ExpiryAlertsCriticalView.as_view(), name="storekeeper-expiry-alerts-critical"),
