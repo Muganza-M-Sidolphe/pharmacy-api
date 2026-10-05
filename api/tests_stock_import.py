@@ -364,6 +364,22 @@ class MedicineImportParsingTests(TestCase):
         self.assertEqual(parse_medicine_name("Doliprane 1 g comprimés"), ("1g", "Tablet"))
         self.assertEqual(parse_medicine_name("Betadine 10% Solution"), ("10%", "Solution"))
         self.assertEqual(parse_medicine_name("Vitamin C"), ("", ""))
+        self.assertEqual(parse_medicine_name("Coartem 20/120mg Tab"), ("20/120mg", "Tablet"))
+
+    def test_report_layout(self):
+        from .utils.medicine_import import detect_columns, extract_table
+
+        rows = [
+            ["KIGALI PHARMA LTD"],
+            ["S/N", "Item Description", "Batch #", "Exp.", "Qty On Hand", "Unit Cost (RWF)", "Selling Price (RWF)"],
+            ["1", "Amoxil 500mg Caps", "AMX1", "2027-05-31", "120", "1500", "2000"],
+            ["", "TOTAL", "", "", "120", "", ""],
+        ]
+        columns, records = extract_table(rows)
+        self.assertEqual(len(records), 1)
+        targets = {c["name"]: (c["target_field"], c["confidence"]) for c in detect_columns(columns)}
+        self.assertEqual(targets["Unit Cost (RWF)"], ("cost_price", "high"))
+        self.assertEqual(targets["Item Description"], ("medicine_name", "high"))
 
     def test_parse_decimal(self):
         self.assertEqual(parse_decimal("1,500 RWF"), Decimal("1500"))

@@ -77,12 +77,21 @@ HEADER_ALIASES = {
     # Kinyarwanda
     "umuti": "medicine_name", "izina": "medicine_name", "izinaryumuti": "medicine_name",
     "umubare": "quantity", "ingano": "quantity", "igiciro": "selling_price",
+    # Common report spellings
+    "itemdescription": "medicine_name", "productdescription": "medicine_name", "itemname": "medicine_name",
+    "dateexp": "expiry_date", "datedexp": "expiry_date", "expiringdate": "expiry_date", "useby": "expiry_date",
 }
+
+# Currency suffixes ignored when matching headers: 'Unit Cost (RWF)' matches 'Unit Cost'.
+CURRENCY_SUFFIX_RE = re.compile(r"(rwf|frw|frs|usd|ugx|kes|ksh|tzs|bif|fbu|cdf)$")
+
+# First cells of summary lines at the bottom of reports; those rows are skipped.
+SUMMARY_ROW_KEYS = {"total", "totals", "grandtotal", "soustotal", "totalgeneral", "totaux", "igiteranyo", "subtotal"}
 
 # Partial matches (substring of the normalized header), checked in order.
 # Reported with medium confidence because they need a human glance.
 HEADER_HINTS = [
-    (("expir", "bestbefore", "useby", "peremp"), "expiry_date"),
+    (("expir", "bestbefore", "useby", "peremp", "rangir"), "expiry_date"),
     (("mfg", "manufacturingdate", "manufacturedate", "productiondate", "fabrication"), "manufacturing_date"),
     (("batch", "lot"), "batch_number"),
     (("generic", "generique"), "generic_name"),
@@ -127,8 +136,9 @@ def suggest_field(header):
     key = normalize_header(header)
     if not key:
         return IGNORE, "low"
-    if key in HEADER_ALIASES:
-        return HEADER_ALIASES[key], "high"
+    for candidate in (key, CURRENCY_SUFFIX_RE.sub("", key)):
+        if candidate in HEADER_ALIASES:
+            return HEADER_ALIASES[candidate], "high"
     for needles, field in HEADER_HINTS:
         if any(needle in key for needle in needles):
             return field, "medium"
@@ -301,6 +311,8 @@ def extract_table(rows):
     for offset, row in enumerate(body):
         if not any(row) or row[:len(header)] == header:
             continue  # blank line or a header repeated on a new PDF page
+        if any(normalize_header(cell) in SUMMARY_ROW_KEYS for cell in row[:3]):
+            continue  # 'TOTAL' line at the bottom of a report
         values = {
             column: (row[position] if position < len(row) else "")
             for position, column in enumerate(columns)
@@ -448,7 +460,9 @@ def _guess_from_values(columns, rows, taken):
 
 
 STRENGTH_RE = re.compile(
-    r"\b\d+(?:[.,]\d+)?\s?(?:mg|mcg|µg|ug|g|ml|iu|ui|%)(?:\s?/\s?\d*(?:[.,]\d+)?\s?(?:ml|g|mg|l|dose))?(?![a-z])",
+    # '500mg', '250mg/5ml', '20/120mg' (combination tablets), '10%'
+    r"\b\d+(?:[.,]\d+)?(?:\s?/\s?\d+(?:[.,]\d+)?)*\s?(?:mg|mcg|µg|ug|g|ml|iu|ui|%)"
+    r"(?:\s?/\s?\d*(?:[.,]\d+)?\s?(?:ml|g|mg|l|dose))?(?![a-z])",
     re.IGNORECASE,
 )
 DOSAGE_FORMS = {
